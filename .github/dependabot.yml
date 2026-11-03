@@ -17,3 +17,8 @@ updates:
     groups:
       gradle:
         patterns: ["*"]
+    ignore:
+      # Kotlin must match the version bundled with the targeted Android Studio
+      # (2025.3 ships Kotlin 2.2), so only patch releases are proposed.
+      - dependency-name: "org.jetbrains.kotlin*"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
