@@ -209,14 +209,19 @@ class SharedRulesService(private val project: Project) :
         // Your on/off choice survives a refresh. Brand-new shared rules start off, so pulling a
         // teammate's rules never starts rewriting your traffic unexpectedly.
         val wasActive = mutableMapOf<String, Boolean>()
-        for (rule in current.filter { it.name in managed }.toList()) {
-            wasActive[rule.name] = rule.isActive
-            if (live != null) live.remove(rule) else persisted.remove(rule)
-        }
-        for ((studioName, entry) in desired) {
-            val shared = entry.first.copy(name = studioName)
-            val rule = RuleMapper.toRuleData(shared, RuleData.newId(), wasActive[studioName] ?: false)
-            if (live != null) live.add(rule) else persisted.add(rule)
+        RulesTableGroups.bulkUpdate = true
+        try {
+            for (rule in current.filter { it.name in managed }.toList()) {
+                wasActive[rule.name] = rule.isActive
+                if (live != null) live.remove(rule) else persisted.remove(rule)
+            }
+            for ((studioName, entry) in desired) {
+                val shared = entry.first.copy(name = studioName)
+                val rule = RuleMapper.toRuleData(shared, RuleData.newId(), wasActive[studioName] ?: false)
+                if (live != null) live.add(rule) else persisted.add(rule)
+            }
+        } finally {
+            RulesTableGroups.bulkUpdate = false
         }
         live?.view?.table?.clearSelection()
         data.importedNames = desired.keys.toMutableSet()

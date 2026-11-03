@@ -53,7 +53,7 @@ interface CollapsedTeams {
  * tick, so a table Studio rebuilds is picked up again; if anything fails, the table is left as is.
  */
 class RulesTableGroups private constructor(private val table: TableView<*>, private val state: CollapsedTeams) {
-    private val model = table.model as ListTableModel<*>
+    private val rulesModel = table.model as ListTableModel<*>
     private val sorter = GroupSorter()
     private val bandHeight get() = JBUI.scale(22)
 
@@ -75,7 +75,7 @@ class RulesTableGroups private constructor(private val table: TableView<*>, priv
 
     // ---- view order ---------------------------------------------------------------------------
 
-    private fun names(): List<String?> = (0 until model.rowCount).map { (model.getItem(it) as? RuleData)?.name }
+    private fun names(): List<String?> = (0 until rulesModel.rowCount).map { (rulesModel.getItem(it) as? RuleData)?.name }
 
     private inner class GroupSorter : RowSorter<TableModel>() {
         var layout: TeamGrouping.Layout = TeamGrouping.layout(names(), state.collapsed)
@@ -89,18 +89,18 @@ class RulesTableGroups private constructor(private val table: TableView<*>, priv
             SwingUtilities.invokeLater(::applyRowHeights)
         }
 
-        override fun getModel(): TableModel = model
+        override fun getModel(): TableModel = rulesModel
         override fun toggleSortOrder(column: Int) = Unit
         override fun setSortKeys(keys: List<SortKey>?) = Unit
         override fun getSortKeys(): List<SortKey> = emptyList()
         override fun getViewRowCount() = layout.viewToModel.size
-        override fun getModelRowCount() = model.rowCount
+        override fun getModelRowCount() = rulesModel.rowCount
 
         override fun convertRowIndexToModel(index: Int): Int = when {
             index in layout.viewToModel.indices -> layout.viewToModel[index]
             // Studio's "+" selects row "rowCount - 1" as a view row right after adding; when groups
             // are collapsed that row may not exist in the view yet, and as a model row it's the new rule.
-            index in 0 until model.rowCount -> index
+            index in 0 until rulesModel.rowCount -> index
             else -> throw IndexOutOfBoundsException("Invalid view row $index")
         }
 
@@ -110,33 +110,56 @@ class RulesTableGroups private constructor(private val table: TableView<*>, priv
         override fun allRowsChanged() = relayout(force = true)
         override fun rowsInserted(firstRow: Int, endRow: Int) {
             relayout(force = true)
-            if (endRow == model.rowCount - 1) fixSelectionAfterAdd(endRow)
+            if (firstRow == endRow && endRow == rulesModel.rowCount - 1 && !bulkUpdate) {
+                expectStudioSelection(endRow, rulesModel.getItem(endRow))
+            }
         }
         override fun rowsDeleted(firstRow: Int, endRow: Int) = relayout(force = true)
         override fun rowsUpdated(firstRow: Int, endRow: Int) = relayout()
         override fun rowsUpdated(firstRow: Int, endRow: Int, column: Int) = relayout()
     }
 
+    /** A rule Studio just added, and the row index Studio is about to select for it. */
+    private var pendingAdd: Pair<Int, Any?>? = null
+
+    /** Set once the table has finished handling the add, so its own selection restore is ignored. */
+    private var addProcessed = false
+
     /**
-     * Studio selects a rule it just added by its model index, as if it were a view row. Once the
-     * add is done, select the rule's real row instead, opening its group if it was collapsed.
-     * A refresh clears the selection after adding, which this leaves alone.
+     * Studio's "+" (and Clone) adds a rule at the end of the model, then selects index
+     * `rowCount - 1` as if it were a view row. With groups that's usually another rule, or no row
+     * at all when a team is collapsed. When that selection arrives, select the new rule's real row
+     * instead, opening its group if it was collapsed. The plugin's own bulk updates are left alone.
      */
-    private fun fixSelectionAfterAdd(modelRow: Int) {
+    private fun expectStudioSelection(staleRow: Int, rule: Any?) {
+        pendingAdd = staleRow to rule
+        addProcessed = false
+        // In case the selection was already that index (no event), or Studio didn't select at all.
         SwingUtilities.invokeLater {
-            val selection = table.selectionModel
-            if (selection.minSelectionIndex != modelRow || selection.maxSelectionIndex != modelRow) return@invokeLater
-            if (modelRow >= model.rowCount) return@invokeLater
-            val key = TeamGrouping.groupKey((model.getItem(modelRow) as? RuleData)?.name)
-            if (state.isCollapsed(key)) {
-                state.setCollapsed(key, false)
-                sorter.relayout()
+            if (pendingAdd?.second === rule) {
+                addProcessed = true
+                fixStudioSelection()
+                pendingAdd = null
             }
-            val view = sorter.convertRowIndexToView(modelRow)
-            if (view < 0) return@invokeLater
-            if (view != modelRow) selection.setSelectionInterval(view, view)
-            table.scrollRectToVisible(table.getCellRect(view, 0, true))
         }
+    }
+
+    private fun fixStudioSelection() {
+        val (staleRow, rule) = pendingAdd ?: return
+        if (!addProcessed) return
+        val selection = table.selectionModel
+        if (selection.minSelectionIndex != staleRow || selection.maxSelectionIndex != staleRow) return
+        pendingAdd = null
+        val modelRow = (0 until rulesModel.rowCount).firstOrNull { rulesModel.getItem(it) === rule } ?: return
+        val key = TeamGrouping.groupKey((rule as? RuleData)?.name)
+        if (state.isCollapsed(key)) {
+            state.setCollapsed(key, false)
+            sorter.relayout()
+        }
+        val view = sorter.convertRowIndexToView(modelRow)
+        if (view < 0) return
+        if (selection.minSelectionIndex != view || selection.maxSelectionIndex != view) selection.setSelectionInterval(view, view)
+        SwingUtilities.invokeLater { if (view < table.rowCount) table.scrollRectToVisible(table.getCellRect(view, 0, true)) }
     }
 
     private fun toggle(group: TeamGrouping.Group) {
@@ -195,6 +218,18 @@ class RulesTableGroups private constructor(private val table: TableView<*>, priv
         }
     }
 
+    /**
+     * Table models notify the listener added first last, so putting ours first in the list makes
+     * it run after the table (and everyone else) has handled a change.
+     */
+    private fun installModelDoneListener() {
+        val model = rulesModel as? javax.swing.table.AbstractTableModel ?: return
+        val others = model.tableModelListeners.toList()
+        others.forEach(model::removeTableModelListener)
+        model.addTableModelListener { if (pendingAdd != null) addProcessed = true }
+        others.forEach(model::addTableModelListener)
+    }
+
     /** Our listener must run first, so a click on a band is consumed before the table selects or edits. */
     private fun installMouse() {
         val listeners = table.mouseListeners.toList()
@@ -209,7 +244,7 @@ class RulesTableGroups private constructor(private val table: TableView<*>, priv
 
     private fun summary(group: TeamGrouping.Group): String {
         val total = group.modelRows.size
-        val on = group.modelRows.count { (it < model.rowCount) && (model.getItem(it) as? RuleData)?.isActive == true }
+        val on = group.modelRows.count { (it < rulesModel.rowCount) && (rulesModel.getItem(it) as? RuleData)?.isActive == true }
         return "${if (total == 1) "1 rule" else "$total rules"} · $on on"
     }
 
@@ -307,6 +342,12 @@ class RulesTableGroups private constructor(private val table: TableView<*>, priv
     companion object {
         private const val KEY = "io.github.networkrules.groups"
         private const val GUARDED_KEY = "io.github.networkrules.moveGuards"
+        /**
+         * Set while the plugin itself adds and removes rules (Refresh, Save to Team), so Studio's
+         * select-the-new-rule step doesn't open collapsed teams or move the selection.
+         */
+        var bulkUpdate = false
+
         private val BAND_BACKGROUND = JBColor.namedColor("NetworkRulesSync.groupBackground", JBColor(0xEBECF0, 0x393B40))
 
         /** Adds team groups to [table], or re-applies them if Studio reset something. Safe to call repeatedly. */
@@ -316,6 +357,8 @@ class RulesTableGroups private constructor(private val table: TableView<*>, priv
             val groups = existing ?: RulesTableGroups(table, state).also {
                 table.putClientProperty(KEY, it)
                 it.installMouse()
+                table.selectionModel.addListSelectionListener { _ -> it.fixStudioSelection() }
+                it.installModelDoneListener()
             }
             groups.ensure()
         }
