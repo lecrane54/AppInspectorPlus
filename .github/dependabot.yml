@@ -1,0 +1,19 @@
+# Proposes updates as pull requests, so new versions of the SHA-pinned actions and Gradle
+# dependencies are reviewed before they run.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      gradle:
+        patterns: ["*"]
