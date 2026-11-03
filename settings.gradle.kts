@@ -1,7 +1,8 @@
 pluginManagement {
     repositories {
-        gradlePluginPortal()
+        // Central first: the plugin portal's mirror misses some BOMs on a clean (CI) cache.
         mavenCentral()
+        gradlePluginPortal()
     }
 }
 
