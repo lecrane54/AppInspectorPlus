@@ -44,14 +44,13 @@ class CreateRuleFromEndpointAction : DumbAwareAction() {
         val settings = EndpointSettings.getInstance(project)
         val base = EndpointLogic.parseBaseUrl(settings.baseUrl)
 
-        // Searching for where the service is built and resolving the response type's classes can take
-        // a moment, so do it off the UI thread.
+        // Building the sample resolves the response type's classes, so do it off the UI thread.
         val read = ProgressManager.getInstance().runProcessWithProgressSynchronously<EndpointRead?, Exception>(
             {
                 ReadAction.compute<EndpointRead?, Exception> {
                     val endpoint = RetrofitEndpoints.at(element) ?: return@compute null
                     val body = endpoint.responseType?.let { RuleMapper.gson.toJson(SampleJson.of(it)) }.orEmpty()
-                    EndpointRead(endpoint, body, endpoint.service?.let(ServiceBaseUrlResolver::find))
+                    EndpointRead(endpoint, body)
                 }
             },
             "Reading Retrofit Endpoint",
@@ -59,13 +58,7 @@ class CreateRuleFromEndpointAction : DumbAwareAction() {
             project,
         ) ?: return
         val endpoint = read.endpoint
-        val serviceBase = read.serviceBase
-        val criteria = if (serviceBase != null) {
-            EndpointLogic.resolveService(base, serviceBase.parts, endpoint.path)
-        } else {
-            EndpointLogic.resolve(base, endpoint.path)
-        }
-        val baseNote = baseNote(endpoint, serviceBase, base)
+        val criteria = EndpointLogic.resolve(base, endpoint.path)
 
         val service = SharedRulesService.getInstance(project)
         val dialog = CreateRuleDialog(
@@ -74,7 +67,7 @@ class CreateRuleFromEndpointAction : DumbAwareAction() {
             method = EndpointLogic.studioMethod(endpoint.method),
             criteria = criteria,
             body = read.body,
-            baseNote = baseNote,
+            hostSet = base != null,
             destinations = service.allFilePaths(),
             turnOn = settings.turnOnNewRules,
         )
@@ -104,27 +97,7 @@ class CreateRuleFromEndpointAction : DumbAwareAction() {
         }
     }
 
-    /** One line under Host explaining where the URL came from. */
-    private fun baseNote(endpoint: RetrofitEndpoint, found: ServiceBase?, environment: EndpointLogic.BaseUrl?): String {
-        val esc = { s: String -> com.intellij.openapi.util.text.StringUtil.escapeXmlEntities(s) }
-        val service = endpoint.service?.name ?: "this service"
-        if (found == null) {
-            return if (environment == null) {
-                "No base URL found in code for $service and none set, so host and base path match anything."
-            } else {
-                "No base URL found in code for $service; using the Settings base URL."
-            }
-        }
-        val from = "Base URL <code>${esc(EndpointLogic.describe(found.parts))}</code> from ${esc(found.location)}."
-        val envPart = (EndpointLogic.normalize(found.parts).firstOrNull() as? EndpointLogic.UrlPart.Dynamic)?.source
-        return when {
-            envPart == null -> from
-            environment != null && environment.path != "/" -> "$from <code>${esc(envPart)}</code> uses the Settings base URL."
-            else -> "$from <code>${esc(envPart)}</code> depends on the environment, so it's <code>*</code>."
-        }
-    }
-
-    private class EndpointRead(val endpoint: RetrofitEndpoint, val body: String, val serviceBase: ServiceBase?)
+    private class EndpointRead(val endpoint: RetrofitEndpoint, val body: String)
 
     /** The PSI element at the caret, or the selected element (e.g. in the Structure view). */
     private fun elementAt(e: AnActionEvent): PsiElement? {
@@ -141,7 +114,7 @@ private class CreateRuleDialog(
     method: String,
     criteria: EndpointLogic.Endpoint,
     body: String,
-    private val baseNote: String,
+    private val hostSet: Boolean,
     destinations: List<String>,
     turnOn: Boolean,
 ) : DialogWrapper(project) {
@@ -177,15 +150,18 @@ private class CreateRuleDialog(
             label("Port:")
             cell(portField)
         }
-        row("") {
-            comment(baseNote)
-        }
-        row("") {
-            link("Environment base URL settings…") {
-                ShowSettingsUtil.getInstance().showSettingsDialog(project, SharedRulesConfigurable::class.java)
+        if (!hostSet) {
+            row("") {
+                comment("No host set, so this matches any host.")
+                link("Set host…") {
+                    ShowSettingsUtil.getInstance().showSettingsDialog(project, SharedRulesConfigurable::class.java)
+                }
             }
         }
-        row("Path:") { cell(pathField).align(AlignX.FILL).comment("<code>*</code> matches anything, e.g. a path parameter.") }
+        row("Path:") {
+            cell(pathField).align(AlignX.FILL)
+                .comment("<code>*</code> matches anything. The leading <code>*</code> covers the service's base path in every environment.")
+        }
         row("Query:") { cell(queryField).align(AlignX.FILL).comment("Empty matches any query.") }
         row("Status code:") { cell(statusField).comment("Empty keeps the server's status code.") }
         row("Response body:") {}

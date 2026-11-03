@@ -18,15 +18,22 @@ class EndpointLogicTest {
         assertNull(EndpointLogic.parseBaseUrl(""))
     }
 
-    @Test fun `relative paths are appended to the base path`() {
-        assertEquals(Endpoint("HTTPS", "api.example.com", "", "/v2/users/*", ""), EndpointLogic.resolve(base, "users/{id}"))
+    @Test fun `path starts with a wildcard so any base path matches`() {
+        assertEquals(Endpoint("HTTPS", "api.example.com", "", "*/users/*", ""), EndpointLogic.resolve(base, "users/{id}"))
+        assertEquals("*/v1/profile", EndpointLogic.resolve(base, "/v1/profile").path)
+        assertEquals("*/users/*/posts/*", EndpointLogic.resolve(null, "users/{userId}/posts/{postId}").path)
     }
 
-    @Test fun `absolute paths replace the base path`() {
-        assertEquals("/v1/profile", EndpointLogic.resolve(base, "/v1/profile").path)
+    @Test fun `the base url's path is not used`() {
+        val withPath = EndpointLogic.parseBaseUrl("https://api.example.com/mobileapps/x/int/")
+        assertEquals("*/trips", EndpointLogic.resolve(withPath, "trips").path)
     }
 
-    @Test fun `full urls replace the base url`() {
+    @Test fun `no base url leaves the host empty`() {
+        assertEquals(Endpoint("HTTPS", "", "", "*/trips/*", ""), EndpointLogic.resolve(null, "trips/{id}"))
+    }
+
+    @Test fun `full urls are used as is`() {
         assertEquals(
             Endpoint("HTTP", "other.example.com", "81", "/x/*", ""),
             EndpointLogic.resolve(base, "http://other.example.com:81/x/{id}"),
@@ -35,16 +42,12 @@ class EndpointLogicTest {
 
     @Test fun `fixed query becomes a wildcard match`() {
         val e = EndpointLogic.resolve(base, "search?type=user")
-        assertEquals("/v2/search", e.path)
+        assertEquals("*/search", e.path)
         assertEquals("*type=user*", e.query)
     }
 
-    @Test fun `empty path from a dynamic Url matches anything under the base`() {
-        assertEquals("/v2/*", EndpointLogic.resolve(base, "").path)
-    }
-
-    @Test fun `no base url leaves the host empty`() {
-        assertEquals(Endpoint("HTTPS", "", "", "/users/*/posts/*", ""), EndpointLogic.resolve(null, "users/{userId}/posts/{postId}"))
+    @Test fun `empty path from a dynamic Url matches anything`() {
+        assertEquals("*", EndpointLogic.resolve(base, "").path)
     }
 
     @Test fun `rule names and methods`() {
@@ -57,50 +60,5 @@ class EndpointLogicTest {
     @Test fun `unique names`() {
         assertEquals("A", EndpointLogic.uniqueName("A", setOf("B")))
         assertEquals("A (3)", EndpointLogic.uniqueName("A", setOf("A", "A (2)")))
-    }
-
-    // ---- service base URLs found in code ----
-
-    private val env = EndpointLogic.UrlPart.Dynamic("BaseUrl(context).secured")
-    private fun text(s: String) = EndpointLogic.UrlPart.Text(s)
-    private val drivewise = listOf(env, text("v1.0/drivewise/api"))
-
-    @Test fun `environment part becomes a wildcard when no environment is set`() {
-        val e = EndpointLogic.resolveService(null, drivewise, "trips/{tripId}")
-        assertEquals(Endpoint("HTTPS", "", "", "*/v1.0/drivewise/api/trips/*", ""), e)
-    }
-
-    @Test fun `environment host without a path still matches any environment prefix`() {
-        val e = EndpointLogic.resolveService(EndpointLogic.parseBaseUrl("https://api.example.com/"), drivewise, "trips")
-        assertEquals(Endpoint("HTTPS", "api.example.com", "", "*/v1.0/drivewise/api/trips", ""), e)
-    }
-
-    @Test fun `environment path from settings is used when set`() {
-        val e = EndpointLogic.resolveService(EndpointLogic.parseBaseUrl("https://api.example.com/mobileapps/*/"), drivewise, "/trips")
-        assertEquals("/mobileapps/*/v1.0/drivewise/api/trips", e.path)
-    }
-
-    @Test fun `annotation path is joined even when it starts with a slash`() {
-        assertEquals("*/v1.0/drivewise/api/score", EndpointLogic.resolveService(null, drivewise, "/score").path)
-        assertEquals("*/v1.0/drivewise/api/score", EndpointLogic.resolveService(null, listOf(env, text("v1.0/drivewise/api/")), "score").path)
-    }
-
-    @Test fun `a constant base url in code is used as is`() {
-        val e = EndpointLogic.resolveService(null, listOf(text("https://api.example.com/v1/")), "users/{id}")
-        assertEquals(Endpoint("HTTPS", "api.example.com", "", "/v1/users/*", ""), e)
-    }
-
-    @Test fun `later runtime parts become wildcards`() {
-        val e = EndpointLogic.resolveService(null, listOf(env, text("v"), EndpointLogic.UrlPart.Dynamic("version"), text("/x")), "y?z=1")
-        assertEquals("*/v*/x/y", e.path)
-        assertEquals("*z=1*", e.query)
-    }
-
-    @Test fun `a full url annotation wins over the service base`() {
-        assertEquals("other.example.com", EndpointLogic.resolveService(null, drivewise, "https://other.example.com/x").host)
-    }
-
-    @Test fun `describe shows the expression`() {
-        assertEquals("BaseUrl(context).secured + \"v1.0/drivewise/api\"", EndpointLogic.describe(listOf(env, text("v1.0/"), text("drivewise/api"))))
     }
 }

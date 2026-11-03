@@ -57,32 +57,24 @@ Kotlin and Java.
 ```kotlin
 interface UserApi {
     @GET("users/{id}")
-    suspend fun user(@Path("id") id: String): User   // → GET https://api.example.com/v2/users/*
+    suspend fun user(@Path("id") id: String): User   // → GET, path */users/*
 }
 ```
 
 The dialog is pre-filled, and everything in it can be edited:
 
-* **Method and path** from the annotation (`@HTTP(method = …)` too). Path parameters such as
-  `{id}` become `*`, because Studio matches host, port, path and query with wildcards
-  (`*` = anything, `?` = one character, empty = anything).
-* **Host, port and base path** from the code that builds the service. The plugin finds where
-  the interface is created (`create(Api::class.java)`, `Api.class`, `create<Api>()`, including
-  custom builders), reads the base URL expression there, and joins the annotation path after it:
-
-  ```kotlin
-  NetworkBuild(context, BaseUrl(context).secured + "v1.0/drivewise/api").create(DrivewiseApi::class.java)
-  // @GET("trips/{id}")  →  path */v1.0/drivewise/api/trips/*
-  ```
-
-  Fixed text and constants are taken from the code. The part that's only known at runtime (here
-  `BaseUrl(context).secured`) is the **environment**. It becomes the **Environment base URL** from
-  *Settings → Tools → Network Inspector Shared Rules* if that has a path, and a `*` wildcard
-  otherwise, so the rule matches every environment. The setting's host is used either way, and it
-  can be a variable, e.g. `https://${API_HOST}/`, so each developer can point it elsewhere with
-  **Personal Variable Values…**. The dialog shows which expression and file the base came from. If
-  the base URL can't be found in code, the setting is used as the whole Retrofit base URL. The setting
-  is stored in `.idea/networkInspectorRules.xml`; commit that file if you want the team to share it.
+* **Method** from the annotation (`@HTTP(method = …)` too). Path parameters such as `{id}` become
+  `*`, because Studio matches host, port, path and query with wildcards (`*` = anything,
+  `?` = one character, empty = anything, and the pattern must match the whole value).
+* **Path** is `*/` plus the annotation path, e.g. `@GET("trips/{id}")` → `*/trips/*`. The leading
+  `*` matches whatever base path the service uses in any environment (`/mobileapps/…/int/v1.0/…`),
+  so nothing environment-specific is hardcoded. Edit it in the dialog if you need to tell apart two
+  services with the same endpoint path, e.g. `*/drivewise/api/trips/*`.
+* **Protocol, host and port** from the **Base URL** under
+  *Settings → Tools → Network Inspector Shared Rules* (its path is ignored). Leave it empty to match any host.
+  The host can be a variable, e.g. `https://${API_HOST}/`, so each developer can point it elsewhere
+  with **Personal Variable Values…**. The setting is stored in `.idea/networkInspectorRules.xml`;
+  commit that file if you want the team to share it.
 * **Status code** 200, and a **response body** built from the return type. `Call<T>`,
   `Response<T>`, `suspend`, RxJava, `Deferred`, `Flow` and `LiveData` are unwrapped first. Fields use
   the names from `@SerializedName` (Gson), `@Json` (Moshi), `@SerialName` (kotlinx.serialization)

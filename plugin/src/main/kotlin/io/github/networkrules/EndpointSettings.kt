@@ -50,18 +50,16 @@ class SharedRulesConfigurable(private val project: Project) : BoundConfigurable(
         val settings = EndpointSettings.getInstance(project)
         return panel {
             group("Create Rule from Retrofit Endpoint") {
-                row("Environment base URL:") {
+                row("Base URL:") {
                     textField()
                         .bindText(settings::baseUrl)
                         .columns(COLUMNS_LARGE)
                         .comment(
-                            "What your environment base resolves to at runtime (e.g. <code>BaseUrl(context).secured</code>). " +
-                                "Each service's own path, such as <code>v1.0/drivewise/api</code>, is read from the code that " +
-                                "builds it and added after this.<br>" +
-                                "Leave the path out (just <code>https://host/</code>), or leave this empty, to match any environment: " +
-                                "the environment part becomes <code>*</code>. <code>*</code> works anywhere, e.g. " +
-                                "<code>https://\${API_HOST}/mobileapps/*/</code>.<br>" +
-                                "Used as the whole base URL for services whose base URL can't be found in code.",
+                            "Protocol, host and port for new rules, e.g. <code>https://api.example.com/</code>. " +
+                                "Any path here is ignored: rule paths start with <code>*</code> " +
+                                "(e.g. <code>*/trips/*</code>), so they match whatever base path a service and environment use.<br>" +
+                                "The host can be a rule variable, e.g. <code>https://\${API_HOST}/</code>, so each developer can use " +
+                                "Personal Variable Values to point it elsewhere. Empty matches any host.",
                         )
                         .validationOnInput {
                             if (it.text.isNotBlank() && EndpointLogic.parseBaseUrl(it.text) == null) {
