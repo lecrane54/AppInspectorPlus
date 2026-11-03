@@ -12,6 +12,7 @@
           <li><b>Create Team…</b> makes a new team folder with a starter <code>rules.json</code>.</li>
           <li><b>Turn On/Off by File…</b> switches a whole scenario file on or off at once, just for you.</li>
           <li><b>Rename Team…</b> and <b>Delete Team…</b> manage team folders; <b>Personal Variable Values…</b> sets your own values for shared variables, never exported.</li>
+          <li><b>Create Network Rule from Endpoint…</b>: right-click a Retrofit method to make a rule for it, with a sample response built from its return type. Set your base URL under <i>Settings → Tools → Network Inspector Shared Rules</i>.</li>
           <li>Rules files get completion and error highlighting in the editor.</li>
           <li><b>Teams…</b> lets each developer hide teams they don't need.</li>
           <li>The buttons appear in the Rules tab toolbar and under <i>Tools → Network Inspector Shared Rules</i>.</li>
@@ -21,12 +22,16 @@
 
     <depends>com.intellij.modules.platform</depends>
     <depends>org.jetbrains.android</depends>
+    <!-- Java PSI and UAST, used to read Retrofit interfaces in Kotlin and Java. -->
+    <depends>com.intellij.java</depends>
     <!-- Completion and error highlighting in rules files, when the JSON plugin is enabled. -->
     <depends optional="true" config-file="network-rules-json.xml">com.intellij.modules.json</depends>
 
     <extensions defaultExtensionNs="com.intellij">
         <postStartupActivity implementation="io.github.networkrules.SharedRulesStartup"/>
         <notificationGroup id="Network Rules Sync" displayType="BALLOON"/>
+        <projectConfigurable parentId="tools" instance="io.github.networkrules.SharedRulesConfigurable"
+                             id="io.github.networkrules.settings" displayName="Network Inspector Shared Rules"/>
     </extensions>
 
     <actions>
@@ -60,6 +65,14 @@
         <action id="NetworkRulesSync.Open" class="io.github.networkrules.OpenSharedRulesFolderAction"
                 text="Show Shared Rules Folder" description="Show network-inspector-rules/ in the Project view"
                 icon="AllIcons.Actions.MenuOpen"/>
+
+        <action id="NetworkRulesSync.CreateFromEndpoint" class="io.github.networkrules.CreateRuleFromEndpointAction"
+                text="Create Network Rule from Endpoint…"
+                description="Create a Network Inspector rule for this Retrofit endpoint, with a sample response body"
+                icon="AllIcons.Nodes.Plugin">
+            <add-to-group group-id="EditorPopupMenu" anchor="first"/>
+            <add-to-group group-id="GenerateGroup" anchor="last"/>
+        </action>
 
         <group id="NetworkRulesSync.More" text="More Shared Rules Actions" popup="true" icon="AllIcons.Actions.More">
             <reference ref="NetworkRulesSync.RenameTeam"/>

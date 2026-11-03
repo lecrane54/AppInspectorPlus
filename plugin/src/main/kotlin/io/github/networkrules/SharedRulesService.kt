@@ -372,6 +372,61 @@ class SharedRulesService(private val project: Project) :
         ).notify(project)
     }
 
+    // ---- new rules from code (Create Network Rule from Endpoint) ---------------------------------
+
+    /**
+     * Adds [rule] to Studio's Rules tab as a local rule (not shared until exported). A taken name gets
+     * " (2)" etc. In a live session Studio sends it to the device straight away. Returns the name used.
+     */
+    fun addLocalRule(rule: SharedRule, active: Boolean): String {
+        val name = EndpointLogic.uniqueName(rule.name ?: "New rule", studioRules().map { it.name }.toSet())
+        val rd = RuleMapper.toRuleData(rule.copy(name = name), RuleData.newId(), active)
+        val live = NetworkInspectorBridge.findLiveTable(project)
+        if (live != null) live.add(rd) else NetworkInspectorBridge.persistedRules(project).add(rd)
+        val where = when {
+            live == null -> "It's applied when Network Inspector next connects."
+            active -> "It's on and was sent to the device."
+            else -> "It's off; tick it in the Rules tab to enable."
+        }
+        notification("Added rule \"${esc(name)}\"", "$where Use Export to share it with your team.", NotificationType.INFORMATION)
+            .notify(project)
+        return name
+    }
+
+    /** True if [target] (team/file.json) already has a rule named [name]. */
+    fun fileHasRule(target: String, name: String): Boolean =
+        existingContent(target)?.rules.orEmpty().any { it.name == name }
+
+    /**
+     * Saves [rule] into [target] (team/file.json), replacing a same-named rule, then refreshes it into
+     * Studio. The file also gets the shared variables the rule uses, never a personal value.
+     */
+    fun addRuleToFile(target: String, rule: SharedRule, active: Boolean) {
+        val team = target.substringBefore('/')
+        val existing = existingContent(target)
+        val rules = existing?.rules.orEmpty().filter { it.name != null }.toMutableList()
+        RulesLogic.upsert(rules, rule)
+        val vars = RulesLogic.exportVariables(
+            existing?.variables.orEmpty(),
+            NetworkInspectorBridge.variables(project).associate { it.name to it.value },
+            RulesLogic.usedVariables(rules),
+            data.localVariables.keys,
+            sharedVariables(),
+        )
+        writeFile(target, RuleMapper.gson.toJson(SharedRulesFile(1, vars, rules)) + "\n", "Add Network Rule")
+        data.hiddenTeams.remove(team)
+        refresh(notifyResult = false)
+
+        val studioName = studioName(team, rule.name.orEmpty())
+        if (active) studioRules().firstOrNull { it.name == studioName }?.isActive = true
+        NetworkInspectorBridge.findLiveTable(project)?.view?.table?.repaint()
+        notification(
+            "Added rule \"${esc(studioName)}\"",
+            "Saved to $ROOT_DIR/${esc(target)}" + (if (active) " and turned on" else "") + ". Commit the file to share it.",
+            NotificationType.INFORMATION,
+        ).notify(project)
+    }
+
     // ---- teams ----------------------------------------------------------------------------------
 
     /**

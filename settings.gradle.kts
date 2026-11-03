@@ -19,3 +19,4 @@ dependencyResolutionManagement {
 }
 
 include("plugin")
+include("appium-mocks")

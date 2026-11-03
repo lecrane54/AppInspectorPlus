@@ -48,6 +48,48 @@ It also refreshes on its own:
 * **When a file changes** (`git pull`, a hand edit) and no inspector session is running, it
   updates silently. During a live session you get a notification with a **Refresh now** link.
 
+## Create a rule from a Retrofit endpoint
+
+Right-click a Retrofit interface method, or its `@GET` / `@POST` / … annotation, and choose
+**Create Network Rule from Endpoint…**. It's also in **Generate** (⌘N / Alt+Insert). It works in
+Kotlin and Java.
+
+```kotlin
+interface UserApi {
+    @GET("users/{id}")
+    suspend fun user(@Path("id") id: String): User   // → GET https://api.example.com/v2/users/*
+}
+```
+
+The dialog is pre-filled, and everything in it can be edited:
+
+* **Method and path** from the annotation (`@HTTP(method = …)` too). Path parameters such as
+  `{id}` become `*`, because Studio matches host, port, path and query with wildcards
+  (`*` = anything, `?` = one character, empty = anything).
+* **Host, port and base path** from the **base URL** under
+  *Settings → Tools → Network Inspector Shared Rules*. Paths are resolved the way Retrofit does it:
+  `users/{id}` is appended to the base path, `/users/{id}` replaces it, and a full URL replaces
+  everything. The host can be a variable, e.g. `https://${API_HOST}/`, so each developer can point
+  it elsewhere with **Personal Variable Values…**. The setting is stored in
+  `.idea/networkInspectorRules.xml`, so commit that file if you want the team to share it.
+* **Status code** 200, and a **response body** built from the return type. `Call<T>`,
+  `Response<T>`, `suspend`, RxJava, `Deferred`, `Flow` and `LiveData` are unwrapped first. Fields use
+  the names from `@SerializedName` (Gson), `@Json` (Moshi), `@SerialName` (kotlinx.serialization)
+  or `@JsonProperty` (Jackson). Strings are filled with their field name, numbers with 0, lists
+  with one item, enums with their first value. `Unit`, `Void`, `Completable` and `ResponseBody`
+  get no body.
+* **Save to:** only your Rules tab (export it later), or straight into a team file.
+
+Rules only rewrite the **response**; the real request is still sent to the server. Types the
+plugin can't see into (custom adapters, polymorphic types) get a best guess for you to edit.
+
+## Using the same rules in Appium tests
+
+Network Inspector rules only work while Android Studio is attached to the app. For Appium tests
+on real devices, [`appium-mocks/`](appium-mocks) has a debug-only OkHttp interceptor to copy into
+the app. It reads these same files, and a test turns scenarios on with an adb broadcast, e.g.
+`--es only "checkout/payment-declined.json"`. See its README.
+
 ## How sharing behaves
 
 * Rules are matched **by their Studio name** (`[team] name`). A refresh replaces every Studio rule
