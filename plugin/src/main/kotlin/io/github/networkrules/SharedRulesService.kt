@@ -61,7 +61,7 @@ class LoadedRulesFile(val ref: RulesFileRef, val content: SharedRulesFile?, val 
 @Service(Service.Level.PROJECT)
 @State(name = "NetworkRulesSync", storages = [Storage(StoragePathMacros.WORKSPACE_FILE)])
 class SharedRulesService(private val project: Project) :
-    PersistentStateComponent<SharedRulesService.Data>, Disposable {
+    PersistentStateComponent<SharedRulesService.Data>, Disposable, CollapsedTeams {
 
     class Data {
         /** Studio names imported at the last refresh, so a rule deleted from a file is removed here too. */
@@ -78,6 +78,9 @@ class SharedRulesService(private val project: Project) :
 
         /** This developer's own values for shared variables. Never written to the shared files. */
         var localVariables: MutableMap<String, String> = linkedMapOf()
+
+        /** Groups this developer collapsed in the Rules tab ("" is the local rules group). */
+        var collapsedTeams: MutableSet<String> = linkedSetOf()
     }
 
     private var data = Data()
@@ -88,6 +91,12 @@ class SharedRulesService(private val project: Project) :
 
     @Volatile
     private var suppressChangeNotification = false
+
+    override val collapsed: Set<String> get() = data.collapsedTeams
+    override fun isCollapsed(key: String) = key in data.collapsedTeams
+    override fun setCollapsed(key: String, collapsed: Boolean) {
+        if (collapsed) data.collapsedTeams += key else data.collapsedTeams -= key
+    }
 
     val rootPath: String? get() = project.basePath?.let { "$it/$ROOT_DIR" }
     fun rootDir(): VirtualFile? = rootPath?.let { LocalFileSystem.getInstance().refreshAndFindFileByPath(it) }
@@ -403,17 +412,7 @@ class SharedRulesService(private val project: Project) :
      */
     fun addRuleToFile(target: String, rule: SharedRule, active: Boolean) {
         val team = target.substringBefore('/')
-        val existing = existingContent(target)
-        val rules = existing?.rules.orEmpty().filter { it.name != null }.toMutableList()
-        RulesLogic.upsert(rules, rule)
-        val vars = RulesLogic.exportVariables(
-            existing?.variables.orEmpty(),
-            NetworkInspectorBridge.variables(project).associate { it.name to it.value },
-            RulesLogic.usedVariables(rules),
-            data.localVariables.keys,
-            sharedVariables(),
-        )
-        writeFile(target, RuleMapper.gson.toJson(SharedRulesFile(1, vars, rules)) + "\n", "Add Network Rule")
+        writeRuleToFile(target, rule, "Add Network Rule")
         data.hiddenTeams.remove(team)
         refresh(notifyResult = false)
 
@@ -425,6 +424,93 @@ class SharedRulesService(private val project: Project) :
             "Saved to $ROOT_DIR/${esc(target)}" + (if (active) " and turned on" else "") + ". Commit the file to share it.",
             NotificationType.INFORMATION,
         ).notify(project)
+    }
+
+    /** Upserts [rule] (named without its team prefix) into [target], with the shared variables its rules use. */
+    private fun writeRuleToFile(target: String, rule: SharedRule, commandName: String) {
+        val existing = existingContent(target)
+        val rules = existing?.rules.orEmpty().filter { it.name != null }.toMutableList()
+        RulesLogic.upsert(rules, rule)
+        val vars = RulesLogic.exportVariables(
+            existing?.variables.orEmpty(),
+            NetworkInspectorBridge.variables(project).associate { it.name to it.value },
+            RulesLogic.usedVariables(rules),
+            data.localVariables.keys,
+            sharedVariables(),
+        )
+        writeFile(target, RuleMapper.gson.toJson(SharedRulesFile(1, vars, rules)) + "\n", commandName)
+    }
+
+    /** The rules files in a team folder, e.g. `rules.json`, sorted. */
+    fun teamFiles(team: String): List<String> =
+        rootDir()?.findChild(team)?.children.orEmpty()
+            .filter { !it.isDirectory && it.extension.equals("json", true) }.map { it.name }.sorted()
+
+    /**
+     * The Studio name [rule] would get in [target], or a reason it can't be saved there: another
+     * file in that team, or another rule in the Rules tab, already uses that name.
+     */
+    fun checkSaveToTeam(rule: RuleData, target: String): String? {
+        val base = baseName(rule.name).trim()
+        if (base.isEmpty()) return "Give the rule a name first."
+        val newName = studioName(target.substringBefore('/'), base)
+        val otherFile = data.origins[newName]
+        if (otherFile != null && otherFile != target) return "$otherFile already has a rule named \"$base\". Rename this rule, or save it to $otherFile."
+        if (studioRules().any { it !== rule && it.name == newName && it.name !in data.importedNames }) {
+            return "Another rule in your Rules tab is already named \"$newName\". Rename one of them first."
+        }
+        return null
+    }
+
+    /**
+     * Saves a rule from the Rules tab into [target] (team/file.json), with Studio's current version:
+     *  - a local rule becomes the team's shared rule `[team] name`, and the local copy is replaced by it;
+     *  - a shared rule is written back to [target], and removed from its old file if it moved.
+     * The rule keeps its on/off state and stays selected. Returns its Studio name.
+     */
+    fun saveRuleToTeam(rule: RuleData, target: String): String {
+        checkSaveToTeam(rule, target)?.let { throw IllegalStateException(it) }
+        val team = target.substringBefore('/')
+        val base = baseName(rule.name).trim()
+        val newName = studioName(team, base)
+        val oldOrigin = originOf(rule.name)
+        val wasActive = rule.isActive
+
+        writeRuleToFile(target, RuleMapper.toShared(rule).copy(name = base), "Save Network Rule to Team")
+        if (oldOrigin != null && oldOrigin != target) {
+            existingContent(oldOrigin)?.let { old ->
+                val oldBase = baseName(rule.name)
+                val kept = old.copy(rules = old.rules.orEmpty().filter { it.name != oldBase }.toMutableList())
+                writeFile(oldOrigin, RuleMapper.gson.toJson(kept) + "\n", "Save Network Rule to Team")
+            }
+        }
+        if (oldOrigin == null) {
+            // The local copy is replaced by the shared rule the refresh loads from the file.
+            val live = NetworkInspectorBridge.findLiveTable(project)
+            if (live != null) live.remove(rule) else NetworkInspectorBridge.persistedRules(project).remove(rule)
+        }
+        data.hiddenTeams.remove(team)
+        setCollapsed(team, false)
+        refresh(notifyResult = false)
+
+        val saved = studioRules().firstOrNull { it.name == newName }
+        if (saved != null && saved.isActive != wasActive) saved.isActive = wasActive
+        NetworkInspectorBridge.findLiveTable(project)?.let { live ->
+            val modelRow = live.rules.indexOfFirst { it.name == newName }
+            val table = live.view.table
+            val viewRow = if (modelRow >= 0) table.convertRowIndexToView(modelRow) else -1
+            if (viewRow >= 0) {
+                table.selectionModel.setSelectionInterval(viewRow, viewRow)
+                table.scrollRectToVisible(table.getCellRect(viewRow, 0, true))
+            }
+            table.repaint()
+        }
+        notification(
+            "Saved \"${esc(newName)}\"",
+            "Saved to $ROOT_DIR/${esc(target)}. Commit the file to share it.",
+            NotificationType.INFORMATION,
+        ).notify(project)
+        return newName
     }
 
     // ---- teams ----------------------------------------------------------------------------------
@@ -450,6 +536,7 @@ class SharedRulesService(private val project: Project) :
         val dir = rootDir()?.findChild(old) ?: throw IllegalStateException("Team \"$old\" no longer exists.")
         writeAction("Rename Network Rules Team") { dir.rename(this, new) }
 
+        if (data.collapsedTeams.remove(old)) data.collapsedTeams += new
         for (rule in studioRules()) {
             if (rule.name in data.importedNames) rule.name = RulesLogic.renameStudioName(rule.name, old, new)
         }
@@ -479,6 +566,7 @@ class SharedRulesService(private val project: Project) :
         val dir = rootDir()?.findChild(team) ?: throw IllegalStateException("Team \"$team\" no longer exists.")
         writeAction("Delete Network Rules Team") { dir.delete(this) }
         data.hiddenTeams.remove(team)
+        data.collapsedTeams.remove(team)
         refresh(notifyResult = false)
         notification(
             "Deleted team ${esc(team)}",
@@ -597,6 +685,10 @@ class SharedRulesService(private val project: Project) :
         if (!tw.isVisible) return
         for (table in NetworkInspectorBridge.rulesTablesOnScreen(project)) {
             runCatching { inject(table) }.onFailure { LOG.debug("Toolbar injection skipped", it) }
+            runCatching { RulesTableGroups.ensure(table, this) }.onFailure { LOG.debug("Team groups skipped", it) }
+        }
+        for (view in NetworkInspectorBridge.ruleDetailViewsOnScreen(project)) {
+            runCatching { RuleTeamBar.ensure(project, view) }.onFailure { LOG.debug("Team bar skipped", it) }
         }
     }
 

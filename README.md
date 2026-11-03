@@ -21,6 +21,12 @@ your-app-repo/
   or `[checkout] Payment declined`. Two teams can use the same rule name without clashing.
 * Each developer can hide teams they don't need with **Teams…**. Rules from hidden teams are
   removed from their Rules tab. New team folders appear automatically.
+* In the Rules tab, rules are **grouped by team** under a header showing the team name, its rule
+  count and how many are on. Click a header to collapse or expand that team. Your own rules
+  (no `[team]` prefix) are grouped last, under *Local rules*. Collapsing only hides rows: collapsed
+  rules still apply, and the order Studio applies rules in doesn't change. Which teams are
+  collapsed is remembered per developer. Studio's ↑/↓ buttons only move a rule within its own
+  team, and are off while any team is collapsed.
 * To create a new team, use **Create Team…**. **Rename Team…** and **Delete Team…** are under the
   **⋯** button (and the Tools menu).
 
@@ -47,6 +53,19 @@ It also refreshes on its own:
   open Network Inspector.
 * **When a file changes** (`git pull`, a hand edit) and no inspector session is running, it
   updates silently. During a live session you get a notification with a **Refresh now** link.
+
+## Saving a rule to a team from the Rules tab
+
+When you select a rule in the Rules tab (including one you just made with **+**), a bar above
+Studio's rule details shows its **Team** and **File**:
+
+* For a local rule the team is *None*. Pick a team (and file) and press **Save to Team**: the rule
+  is written to `team/file.json`, renamed `[team] name`, and keeps its on/off state. Type the
+  name without a `[team]` prefix; the team supplies it.
+* For a shared rule it shows the file it came from. **Save Changes** writes your Rules-tab edits
+  back to that file, without going through Export. Picking another team or file moves it there.
+* If that team already has a rule with the same name in another file, you're asked to rename it
+  first; if the chosen file already has one, you're asked before it's replaced.
 
 ## Create a rule from a Retrofit endpoint
 
@@ -81,7 +100,9 @@ The dialog is pre-filled, and everything in it can be edited:
   or `@JsonProperty` (Jackson). Strings are filled with their field name, numbers with 0, lists
   with one item, enums with their first value. `Unit`, `Void`, `Completable` and `ResponseBody`
   get no body.
-* **Save to:** only your Rules tab (export it later), or straight into a team file.
+* **Team** and **File**: pick a team to save the rule straight into that team's file (`rules.json`
+  by default; pick another of the team's files or type a new name). It shows up in the Rules tab as
+  `[team] name`. Leave the team at *None* to add it to your Rules tab only and export it later.
 
 Rules only rewrite the **response**; the real request is still sent to the server. Types the
 plugin can't see into (custom adapters, polymorphic types) get a best guess for you to edit.
@@ -152,10 +173,13 @@ is per user and not committed. The plugin:
    rules through Studio's own `addRule`, which sends them to the device. It removes rules with
    the same `InterceptRuleRemoved` command Studio uses.
 3. It adds its toolbar next to the Rules tab's built-in toolbar.
+4. It groups the Rules table by team with a `RowSorter` that only changes which rows are shown and
+   in what order, never the rule list itself. The team headers are drawn on top of each group's
+   first row ([`RulesTableGroups.kt`](plugin/src/main/kotlin/io/github/networkrules/RulesTableGroups.kt)).
 
 All of this is Studio-internal API (`com.android.tools.idea.appinspection.inspectors.network.*`)
 and is confined to [`NetworkInspectorBridge.kt`](plugin/src/main/kotlin/io/github/networkrules/NetworkInspectorBridge.kt)
-plus the toolbar injection in `SharedRulesService.kt`. It's verified to compile against
+plus the toolbar injection in `SharedRulesService.kt` and the grouping in `RulesTableGroups.kt`. It's verified to compile against
 **Android Studio 2025.3 (build 253)**. A future Studio version may need small fixes there. If the
 toolbar injection ever stops matching Studio's layout, the Tools menu actions still work.
 

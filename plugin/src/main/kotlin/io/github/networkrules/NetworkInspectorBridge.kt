@@ -7,6 +7,7 @@ import com.android.tools.idea.appinspection.inspectors.network.model.rules.RuleV
 import com.android.tools.idea.appinspection.inspectors.network.model.rules.RuleVariablesStateComponent
 import com.android.tools.idea.appinspection.inspectors.network.model.rules.RulesPersistentStateComponent
 import com.android.tools.idea.appinspection.inspectors.network.model.rules.RulesTableModel
+import com.android.tools.idea.appinspection.inspectors.network.view.details.RuleDetailsView
 import com.android.tools.idea.appinspection.inspectors.network.view.rules.RulesTableView
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
@@ -78,6 +79,12 @@ object NetworkInspectorBridge {
         return tw.contentManager.contents.flatMap { content ->
             UIUtil.findComponentsOfType(content.component, TableView::class.java)
         }.filter { it.model is RulesTableModel }
+    }
+
+    /** Studio's rule details panels currently in the App Inspection tool window. */
+    fun ruleDetailViewsOnScreen(project: Project): List<RuleDetailsView> {
+        val tw = ToolWindowManager.getInstance(project).getToolWindow(APP_INSPECTION_TOOL_WINDOW) ?: return emptyList()
+        return tw.contentManager.contents.flatMap { UIUtil.findComponentsOfType(it.component, RuleDetailsView::class.java) }
     }
 
     private fun isAlive(view: RulesTableView): Boolean =

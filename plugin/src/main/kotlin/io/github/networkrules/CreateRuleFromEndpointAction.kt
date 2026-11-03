@@ -68,7 +68,7 @@ class CreateRuleFromEndpointAction : DumbAwareAction() {
             criteria = criteria,
             body = read.body,
             hostSet = base != null,
-            destinations = service.allFilePaths(),
+            service = service,
             turnOn = settings.turnOnNewRules,
         )
         if (!dialog.showAndGet()) return
@@ -115,7 +115,7 @@ private class CreateRuleDialog(
     criteria: EndpointLogic.Endpoint,
     body: String,
     private val hostSet: Boolean,
-    destinations: List<String>,
+    service: SharedRulesService,
     turnOn: Boolean,
 ) : DialogWrapper(project) {
     private val nameField = JBTextField(name)
@@ -129,7 +129,7 @@ private class CreateRuleDialog(
     private val bodyArea = JBTextArea(body, 14, 60).apply {
         font = JBUI.Fonts.create(java.awt.Font.MONOSPACED, font.size)
     }
-    private val targetCombo = ComboBox((listOf(LOCAL_ONLY) + destinations).toTypedArray()).apply { isEditable = true }
+    private val picker = TeamFilePicker(service, LOCAL_ONLY)
     private val turnOnBox = JBCheckBox("Turn the rule on now", turnOn)
 
     init {
@@ -169,10 +169,12 @@ private class CreateRuleDialog(
             cell(JBScrollPane(bodyArea)).align(Align.FILL)
                 .comment("Replaces the real response body. Built from the method's return type; edit as needed. Empty keeps the server's body.")
         }.resizableRow()
-        row("Save to:") {
-            cell(targetCombo).align(AlignX.FILL)
-                .comment("Your Rules tab only (export it later), or a team file like <code>login/rules.json</code> to share it now.")
-        }
+        row("Team:") {
+            cell(picker.teamCombo)
+            label("File:")
+            cell(picker.fileCombo)
+        }.rowComment("Pick a team to save the rule to its file now, named <code>[team] name</code> in the Rules tab. " +
+            "With no team, it goes to your Rules tab only (Export it later).")
         row { cell(turnOnBox) }
     }.apply { preferredSize = JBUI.size(640, 640) }
 
@@ -190,14 +192,12 @@ private class CreateRuleDialog(
         if ((body.startsWith("{") || body.startsWith("[")) && runCatching { JsonParser.parseString(body) }.isFailure) {
             problems += ValidationInfo("The body looks like JSON but doesn't parse", bodyArea).asWarning().withOKEnabled()
         }
-        val t = target()
-        if (t != null && !SharedRulesService.VALID_TARGET.matches(t)) problems += ValidationInfo("Use team/file.json, e.g. login/rules.json", targetCombo)
+        picker.fileProblem()?.let { problems += ValidationInfo(it, picker.fileCombo) }
         return problems
     }
 
     /** null = only the developer's Rules tab. */
-    fun target(): String? = (targetCombo.editor.item as? String)?.trim()?.removeSuffix("/")
-        ?.takeIf { it.isNotEmpty() && it != LOCAL_ONLY }
+    fun target(): String? = picker.target()
 
     fun turnOn(): Boolean = turnOnBox.isSelected
 
@@ -221,6 +221,6 @@ private class CreateRuleDialog(
     }
 
     companion object {
-        const val LOCAL_ONLY = "Only my Rules tab"
+        const val LOCAL_ONLY = RuleTeamBar.LOCAL_LABEL
     }
 }
