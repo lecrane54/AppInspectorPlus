@@ -103,6 +103,23 @@ plus the toolbar injection in `SharedRulesService.kt`. It's verified to compile 
 **Android Studio 2025.3 (build 253)**. A future Studio version may need small fixes there. If the
 toolbar injection ever stops matching Studio's layout, the Tools menu actions still work.
 
+## Releases
+
+Teammates don't need to build anything. They download the zip from the repo's
+[**Releases**](../../releases) page and install it (see below).
+
+To publish a new version, push a tag. The [Build plugin](.github/workflows/release.yml) workflow
+builds the zip, versions it from the tag, and attaches it to a GitHub Release:
+
+```bash
+git tag v0.3.0
+git push origin v0.3.0
+```
+
+You can also run the workflow by hand from the **Actions** tab. That gives you the zip as a build
+artifact without creating a release. CI downloads the Android Studio version named by
+`androidStudioVersion` in `gradle.properties`, so bump it when you move to a new Studio.
+
 ## Build & install
 
 ```bash
@@ -111,7 +128,8 @@ toolbar injection ever stops matching Studio's layout, the Tools menu actions st
 ```
 
 Install the zip through Settings → Plugins → ⚙ → **Install Plugin from Disk…**, then restart.
-`androidStudioPath` in `gradle.properties` points to the Studio install to compile against.
+`androidStudioPath` in `gradle.properties` points to a local Studio install to compile against.
+If that path doesn't exist, Gradle downloads `androidStudioVersion` instead.
 
 To push updates to the team automatically, host the zip in a
 [custom plugin repository](https://plugins.jetbrains.com/docs/intellij/custom-plugin-repository.html).
