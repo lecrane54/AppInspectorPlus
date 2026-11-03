@@ -25,13 +25,14 @@ your-app-repo/
 
 ## What you get
 
-Four buttons, added to the right of the **+ / −** buttons in the Rules tab. The same actions are
+Five buttons, added to the right of the **+ / −** buttons in the Rules tab. The same actions are
 under **Tools → Network Inspector Shared Rules**.
 
 | Button | What it does |
 |---|---|
 | ⟳ **Refresh Shared Rules** | Loads every visible team's files into the Rules tab. If an app is connected, the rules go to the device **immediately**, with no restart. |
 | ⇪ **Export Shared Rules…** | Shows a checklist of your Rules-tab rules. Shared rules go back to their own file. Local rules you check go to the file you pick under "Save new rules to" (`team/file.json`). |
+| ⇩ **Import Rules from File…** | Picks one or more rules files from anywhere on disk (same JSON format) and copies them into a team folder you choose, then refreshes. If a file with that name already exists in the team, the rules are merged and you're asked before same-named rules are replaced. A `[team]` prefix left in imported rule names is removed. |
 | ⧩ **Choose Teams…** | Chooses which team folders *you* load. This choice is local and not committed. |
 | 📂 **Show Shared Rules Folder** | Shows `network-inspector-rules/` in the Project view. |
 

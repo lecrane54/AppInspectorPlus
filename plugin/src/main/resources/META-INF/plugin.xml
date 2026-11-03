@@ -7,6 +7,7 @@
         <ul>
           <li>Rules live in team folders: <code>network-inspector-rules/&lt;team&gt;/*.json</code> (e.g. <code>login/</code>, <code>checkout/</code>), as readable JSON with JSON bodies stored as real JSON.</li>
           <li><b>Export</b> writes the rules you choose to their team files.</li>
+          <li><b>Import</b> copies rules files from anywhere on disk into a team folder.</li>
           <li><b>Refresh</b> loads the team folders into the Rules tab (as <code>[team] name</code>) and sends the rules to the connected app straight away.</li>
           <li><b>Teams…</b> lets each developer hide teams they don't need.</li>
           <li>The buttons appear in the Rules tab toolbar and under <i>Tools → Network Inspector Shared Rules</i>.</li>
@@ -29,6 +30,9 @@
         <action id="NetworkRulesSync.Export" class="io.github.networkrules.ExportSharedRulesAction"
                 text="Export Shared Rules…" description="Write Network Inspector rules to the shared team folders"
                 icon="AllIcons.ToolbarDecorator.Export"/>
+        <action id="NetworkRulesSync.Import" class="io.github.networkrules.ImportSharedRulesAction"
+                text="Import Rules from File…" description="Copy rules files from disk into a shared team folder"
+                icon="AllIcons.ToolbarDecorator.Import"/>
         <action id="NetworkRulesSync.Teams" class="io.github.networkrules.ChooseTeamsAction"
                 text="Choose Teams…" description="Choose which team folders to load shared rules from"
                 icon="AllIcons.General.Filter"/>
@@ -39,6 +43,7 @@
         <group id="NetworkRulesSync.Toolbar">
             <reference ref="NetworkRulesSync.Refresh"/>
             <reference ref="NetworkRulesSync.Export"/>
+            <reference ref="NetworkRulesSync.Import"/>
             <reference ref="NetworkRulesSync.Teams"/>
             <reference ref="NetworkRulesSync.Open"/>
         </group>
@@ -46,6 +51,7 @@
         <group id="NetworkRulesSync.ToolsMenu" text="Network Inspector Shared Rules" popup="true">
             <reference ref="NetworkRulesSync.Refresh"/>
             <reference ref="NetworkRulesSync.Export"/>
+            <reference ref="NetworkRulesSync.Import"/>
             <reference ref="NetworkRulesSync.Teams"/>
             <reference ref="NetworkRulesSync.Open"/>
             <add-to-group group-id="ToolsMenu" anchor="last"/>

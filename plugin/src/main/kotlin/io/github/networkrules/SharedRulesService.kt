@@ -296,11 +296,78 @@ class SharedRulesService(private val project: Project) :
         ).notify(project)
     }
 
-    private fun writeFile(relPath: String, text: String) {
+    // ---- import (outside file → team folder) ----------------------------------------------------
+
+    /** Parses a rules file picked from anywhere on disk. Throws with a readable message if it isn't one. */
+    fun parseImport(file: VirtualFile): SharedRulesFile {
+        val parsed = try {
+            RuleMapper.gson.fromJson(VfsUtilCore.loadText(file), SharedRulesFile::class.java)
+        } catch (e: Exception) {
+            throw IllegalArgumentException("not valid JSON (${e.message ?: e.javaClass.simpleName})")
+        } ?: throw IllegalArgumentException("the file is empty")
+        val rules = parsed.rules.orEmpty().filter { !it.name.isNullOrBlank() }
+        require(rules.isNotEmpty()) { "no named rules found (expected a \"rules\" list like the files in $ROOT_DIR/)" }
+        // Imported rules arrive under a team prefix, so strip one if the file was exported with Studio names.
+        return SharedRulesFile(
+            version = 1,
+            variables = parsed.variables.orEmpty().filter { !it.name.isNullOrBlank() }.toMutableList(),
+            rules = rules.map { it.copy(name = baseName(it.name!!)) }.toMutableList(),
+        )
+    }
+
+    /** Rule names in [team]/[fileName] that an import of [incoming] would overwrite. */
+    fun importCollisions(team: String, fileName: String, incoming: SharedRulesFile): List<String> {
+        val existing = existingContent("$team/$fileName") ?: return emptyList()
+        val names = existing.rules.orEmpty().mapNotNull { it.name }.toSet()
+        return incoming.rules.orEmpty().mapNotNull { it.name }.filter { it in names }
+    }
+
+    /**
+     * Copies imported rules into `team/fileName`. If that file already exists, the rules are merged:
+     * an imported rule replaces the existing rule with the same name, others are appended.
+     * The team is un-hidden so the rules show up, then the folders are refreshed into Studio.
+     */
+    fun importRules(imports: List<Pair<String, SharedRulesFile>>, team: String) {
+        var ruleCount = 0
+        for ((fileName, incoming) in imports) {
+            val relPath = "$team/$fileName"
+            val existing = existingContent(relPath)
+            val rules = existing?.rules.orEmpty().filter { it.name != null }.toMutableList()
+            for (r in incoming.rules.orEmpty()) {
+                val i = rules.indexOfFirst { it.name == r.name }
+                if (i >= 0) rules[i] = r else rules += r
+            }
+            val vars = (existing?.variables.orEmpty() + incoming.variables.orEmpty())
+                .filter { it.name != null }.associateBy { it.name!! }.values.toMutableList()
+            writeFile(relPath, RuleMapper.gson.toJson(SharedRulesFile(1, vars, rules)) + "\n", "Import Network Rules")
+            ruleCount += incoming.rules.orEmpty().size
+        }
+        data.hiddenTeams.remove(team)
+        refresh(notifyResult = false)
+        notification(
+            "Imported $ruleCount rule(s) into $team",
+            "Saved under $ROOT_DIR/$team/. Imported rules start disabled; tick them in the Rules tab to enable. " +
+                "Commit the changes to share them with your team.",
+            NotificationType.INFORMATION,
+        ).notify(project)
+    }
+
+    /** The current contents of a team file, or null if it doesn't exist. Throws if it exists but can't be read, so it's never overwritten. */
+    private fun existingContent(relPath: String): SharedRulesFile? {
+        val file = rootDir()?.findFileByRelativePath(relPath) ?: return null
+        return try {
+            val text = FileDocumentManager.getInstance().getCachedDocument(file)?.text ?: VfsUtilCore.loadText(file)
+            RuleMapper.gson.fromJson(text, SharedRulesFile::class.java) ?: SharedRulesFile()
+        } catch (e: Exception) {
+            throw IllegalStateException("$ROOT_DIR/$relPath exists but couldn't be read (${e.message ?: e.javaClass.simpleName}). Fix or remove it first.")
+        }
+    }
+
+    private fun writeFile(relPath: String, text: String, commandName: String = "Export Network Rules") {
         val root = rootPath ?: error("Project has no base directory")
         suppressChangeNotification = true
         try {
-            WriteCommandAction.runWriteCommandAction(project, "Export Network Rules", null, {
+            WriteCommandAction.runWriteCommandAction(project, commandName, null, {
                 val dir = VfsUtil.createDirectoryIfMissing("$root/${relPath.substringBefore('/')}")!!
                 val name = relPath.substringAfter('/')
                 val file = dir.findChild(name) ?: dir.createChildData(this, name)

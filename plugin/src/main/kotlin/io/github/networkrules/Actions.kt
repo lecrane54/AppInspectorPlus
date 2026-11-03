@@ -3,12 +3,15 @@ package io.github.networkrules
 import com.intellij.ide.actions.RevealFileAction
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.fileChooser.FileChooser
+import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.ValidationInfo
+import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.ui.CheckBoxList
 import com.intellij.ui.components.JBLabel
@@ -47,6 +50,104 @@ class ExportSharedRulesAction : ProjectAction() {
         }
         val dialog = ExportDialog(project, rows, service.allFilePaths())
         if (dialog.showAndGet()) service.export(dialog.selected(), dialog.target())
+    }
+}
+
+/** Outside file → team folder: copy rules files from anywhere on disk into a team, then refresh. */
+class ImportSharedRulesAction : ProjectAction() {
+    override fun actionPerformed(e: AnActionEvent) {
+        val project = e.project ?: return
+        val service = SharedRulesService.getInstance(project)
+        val descriptor = FileChooserDescriptorFactory.createMultipleFilesNoJarsDescriptor()
+            .withExtensionFilter("json")
+            .withTitle("Import Network Rules")
+            .withDescription("Choose rules files in the ${SharedRulesService.ROOT_DIR} JSON format.")
+        val chosen = FileChooser.chooseFiles(descriptor, project, null)
+        if (chosen.isEmpty()) return
+
+        val parsed = mutableListOf<ImportRow>()
+        val errors = mutableListOf<String>()
+        for (f in chosen) {
+            try {
+                parsed += ImportRow(sanitizeFileName(f.name), service.parseImport(f))
+            } catch (ex: IllegalArgumentException) {
+                errors += "${f.name}: ${ex.message}"
+            }
+        }
+        if (parsed.isEmpty()) {
+            Messages.showErrorDialog(project, errors.joinToString("\n"), "Nothing to Import")
+            return
+        }
+
+        val dialog = ImportDialog(project, parsed, errors, service.allTeams())
+        if (!dialog.showAndGet()) return
+        val team = dialog.team()
+
+        val collisions = try {
+            parsed.flatMap { row -> service.importCollisions(team, row.fileName, row.content).map { "$team/${row.fileName}: $it" } }
+        } catch (ex: IllegalStateException) {
+            Messages.showErrorDialog(project, ex.message, "Can't Import")
+            return
+        }
+        if (collisions.isNotEmpty()) {
+            val answer = Messages.showYesNoDialog(
+                project,
+                "These rules already exist and will be replaced by the imported version:\n\n" + collisions.joinToString("\n"),
+                "Replace Existing Rules?",
+                "Replace",
+                "Cancel",
+                Messages.getWarningIcon(),
+            )
+            if (answer != Messages.YES) return
+        }
+        service.importRules(parsed.map { it.fileName to it.content }, team)
+    }
+
+    /** Keeps the picked file's name, but only with characters a team file path allows. */
+    private fun sanitizeFileName(name: String): String {
+        val base = name.substringBeforeLast('.').replace(Regex("[^A-Za-z0-9 _.-]"), "-").trim('-', '.', ' ').ifEmpty { "imported" }
+        return "$base.json"
+    }
+}
+
+class ImportRow(val fileName: String, val content: SharedRulesFile)
+
+private class ImportDialog(
+    project: Project,
+    private val rows: List<ImportRow>,
+    private val errors: List<String>,
+    teams: List<String>,
+) : DialogWrapper(project) {
+    private val teamCombo = ComboBox(teams.ifEmpty { listOf("imported") }.toTypedArray()).apply { isEditable = true }
+
+    init {
+        title = "Import Network Inspector Rules"
+        setOKButtonText("Import")
+        init()
+    }
+
+    override fun createCenterPanel(): JComponent = panel {
+        row { label("<html>These files will be copied into the team folder you choose under <b>${SharedRulesService.ROOT_DIR}/</b>:</html>") }
+        for (r in rows) {
+            val n = r.content.rules.orEmpty().size
+            row { label("•  ${r.fileName}   ($n rule${if (n == 1) "" else "s"})") }
+        }
+        if (errors.isNotEmpty()) {
+            row { label("<html><b>Skipped:</b><br>${errors.joinToString("<br>") { StringUtil.escapeXmlEntities(it) }}</html>") }
+        }
+        row("Team:") {
+            cell(teamCombo).align(AlignX.FILL)
+                .comment("Pick an existing team or type a new name to create its folder. A file with the same name is merged; same-named rules are replaced.")
+        }
+    }.apply { preferredSize = JBUI.size(520, 0) }
+
+    override fun doValidate(): ValidationInfo? =
+        if (!VALID_TEAM.matches(team())) ValidationInfo("Use letters, digits, spaces, '_', '-' or '.'", teamCombo) else null
+
+    fun team(): String = (teamCombo.editor.item as? String)?.trim()?.trim('/').orEmpty()
+
+    companion object {
+        private val VALID_TEAM = Regex("""^[A-Za-z0-9_-][A-Za-z0-9 _.-]*$""")
     }
 }
 
