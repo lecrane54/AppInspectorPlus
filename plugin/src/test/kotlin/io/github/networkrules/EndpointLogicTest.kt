@@ -58,4 +58,49 @@ class EndpointLogicTest {
         assertEquals("A", EndpointLogic.uniqueName("A", setOf("B")))
         assertEquals("A (3)", EndpointLogic.uniqueName("A", setOf("A", "A (2)")))
     }
+
+    // ---- service base URLs found in code ----
+
+    private val env = EndpointLogic.UrlPart.Dynamic("BaseUrl(context).secured")
+    private fun text(s: String) = EndpointLogic.UrlPart.Text(s)
+    private val drivewise = listOf(env, text("v1.0/drivewise/api"))
+
+    @Test fun `environment part becomes a wildcard when no environment is set`() {
+        val e = EndpointLogic.resolveService(null, drivewise, "trips/{tripId}")
+        assertEquals(Endpoint("HTTPS", "", "", "*/v1.0/drivewise/api/trips/*", ""), e)
+    }
+
+    @Test fun `environment host without a path still matches any environment prefix`() {
+        val e = EndpointLogic.resolveService(EndpointLogic.parseBaseUrl("https://api.example.com/"), drivewise, "trips")
+        assertEquals(Endpoint("HTTPS", "api.example.com", "", "*/v1.0/drivewise/api/trips", ""), e)
+    }
+
+    @Test fun `environment path from settings is used when set`() {
+        val e = EndpointLogic.resolveService(EndpointLogic.parseBaseUrl("https://api.example.com/mobileapps/*/"), drivewise, "/trips")
+        assertEquals("/mobileapps/*/v1.0/drivewise/api/trips", e.path)
+    }
+
+    @Test fun `annotation path is joined even when it starts with a slash`() {
+        assertEquals("*/v1.0/drivewise/api/score", EndpointLogic.resolveService(null, drivewise, "/score").path)
+        assertEquals("*/v1.0/drivewise/api/score", EndpointLogic.resolveService(null, listOf(env, text("v1.0/drivewise/api/")), "score").path)
+    }
+
+    @Test fun `a constant base url in code is used as is`() {
+        val e = EndpointLogic.resolveService(null, listOf(text("https://api.example.com/v1/")), "users/{id}")
+        assertEquals(Endpoint("HTTPS", "api.example.com", "", "/v1/users/*", ""), e)
+    }
+
+    @Test fun `later runtime parts become wildcards`() {
+        val e = EndpointLogic.resolveService(null, listOf(env, text("v"), EndpointLogic.UrlPart.Dynamic("version"), text("/x")), "y?z=1")
+        assertEquals("*/v*/x/y", e.path)
+        assertEquals("*z=1*", e.query)
+    }
+
+    @Test fun `a full url annotation wins over the service base`() {
+        assertEquals("other.example.com", EndpointLogic.resolveService(null, drivewise, "https://other.example.com/x").host)
+    }
+
+    @Test fun `describe shows the expression`() {
+        assertEquals("BaseUrl(context).secured + \"v1.0/drivewise/api\"", EndpointLogic.describe(listOf(env, text("v1.0/"), text("drivewise/api"))))
+    }
 }

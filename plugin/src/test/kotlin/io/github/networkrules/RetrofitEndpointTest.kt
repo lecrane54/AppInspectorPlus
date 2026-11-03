@@ -160,4 +160,118 @@ class RetrofitEndpointTest : LightJavaCodeInsightFixtureTestCase() {
         myFixture.addClass(api("""@POST("logout") io.reactivex.Completable logout();"""))
         assertNull(endpoint("logout")!!.responseType)
     }
+
+    // ---- the service's base URL, from the code that builds it ----
+
+    private fun addNetworkStubs() {
+        myFixture.addClass("package app.net; public class BaseUrl { public final String secured; public BaseUrl(Object context) { secured = System.getenv(\"X\"); } }")
+        myFixture.addClass("package app.net; public class NetworkBuild { public NetworkBuild(Object context, String baseUrl) {} public <T> T create(Class<T> c) { return null; } }")
+        myFixture.addClass("package app; public interface DrivewiseApi { @retrofit2.http.GET(\"trips/{id}\") retrofit2.Call<Address> trip(String id); }")
+        myFixture.addClass("package app; public interface OtherApi { @retrofit2.http.GET(\"x\") retrofit2.Call<Address> x(); }")
+    }
+
+    private fun serviceBase(service: String): ServiceBase? = ReadAction.compute<ServiceBase?, Exception> {
+        ServiceBaseUrlResolver.find(myFixture.findClass(service))
+    }
+
+    private fun drivewiseParts() = listOf(
+        EndpointLogic.UrlPart.Dynamic("new BaseUrl(context).secured"),
+        EndpointLogic.UrlPart.Text("v1.0/drivewise/api"),
+    )
+
+    fun `test base url from a custom builder in a module`() {
+        addNetworkStubs()
+        myFixture.addClass(
+            """
+            package app.di;
+            import app.*; import app.net.*;
+            public class ClassicRemoteDataSourceModule {
+                public DrivewiseApi provideDrivewise(Object context) {
+                    return new NetworkBuild(context, new BaseUrl(context).secured + "v1.0/drivewise/api").create(DrivewiseApi.class);
+                }
+                public OtherApi provideOther(Object context) {
+                    return new NetworkBuild(context, new BaseUrl(context).secured + "v2/other/").create(OtherApi.class);
+                }
+            }
+            """.trimIndent(),
+        )
+        val found = serviceBase("app.DrivewiseApi")!!
+        assertEquals(drivewiseParts(), found.parts)
+        assertEquals("ClassicRemoteDataSourceModule.provideDrivewise (ClassicRemoteDataSourceModule.java)", found.location)
+        assertEquals("*/v2/other/x", EndpointLogic.resolveService(null, serviceBase("app.OtherApi")!!.parts, "x").path)
+
+        // End to end: the annotation path is joined after the service base.
+        val endpoint = endpoint2("app.DrivewiseApi", "trip")
+        assertEquals("*/v1.0/drivewise/api/trips/*", EndpointLogic.resolveService(null, found.parts, endpoint.path).path)
+    }
+
+    fun `test base url through a field and a constant`() {
+        addNetworkStubs()
+        myFixture.addClass(
+            """
+            package app.di;
+            import app.*; import app.net.*;
+            public class ClassicRemoteDataSourceModule {
+                static final String DRIVEWISE = "v1.0/drivewise/api";
+                private final NetworkBuild networkBuild;
+                public ClassicRemoteDataSourceModule(Object context) {
+                    networkBuild = null;
+                }
+                private final NetworkBuild build = new NetworkBuild(null, new BaseUrl(context()).secured + DRIVEWISE);
+                Object context() { return null; }
+                public DrivewiseApi provide() { return build.create(DrivewiseApi.class); }
+            }
+            """.trimIndent(),
+        )
+        val parts = serviceBase("app.DrivewiseApi")!!.parts
+        assertEquals(EndpointLogic.UrlPart.Text("v1.0/drivewise/api"), parts.last())
+        assertTrue(parts.first() is EndpointLogic.UrlPart.Dynamic)
+    }
+
+    fun `test base url through a local variable`() {
+        addNetworkStubs()
+        myFixture.addClass(
+            """
+            package app.di;
+            import app.*; import app.net.*;
+            public class Module {
+                public DrivewiseApi provide(Object context) {
+                    String base = new BaseUrl(context).secured;
+                    String url = base + "v1.0/drivewise/api";
+                    return new NetworkBuild(context, url).create(DrivewiseApi.class);
+                }
+            }
+            """.trimIndent(),
+        )
+        assertEquals(drivewiseParts(), serviceBase("app.DrivewiseApi")!!.parts)
+    }
+
+    fun `test constant retrofit base url`() {
+        myFixture.addClass("package retrofit2; public class Retrofit { public static class Builder { public Builder baseUrl(String u) { return this; } public Retrofit build() { return null; } } public <T> T create(Class<T> c) { return null; } }")
+        myFixture.addClass("package app; public interface PlainApi { @retrofit2.http.GET(\"users\") retrofit2.Call<Address> users(); }")
+        myFixture.addClass(
+            """
+            package app.di;
+            public class Net {
+                static final String HOST = "https://api.example.com/";
+                public app.PlainApi api() {
+                    return new retrofit2.Retrofit.Builder().baseUrl(HOST + "v3/").build().create(app.PlainApi.class);
+                }
+            }
+            """.trimIndent(),
+        )
+        val parts = serviceBase("app.PlainApi")!!.parts
+        assertEquals(listOf(EndpointLogic.UrlPart.Text("https://api.example.com/v3/")), parts)
+        assertEquals("/v3/users", EndpointLogic.resolveService(null, parts, "users").path)
+    }
+
+    fun `test no usage means no service base`() {
+        addNetworkStubs()
+        assertNull(serviceBase("app.DrivewiseApi"))
+    }
+
+    private fun endpoint2(cls: String, method: String): RetrofitEndpoint {
+        val psi = myFixture.findClass(cls).findMethodsByName(method, false).single()
+        return ReadAction.compute<RetrofitEndpoint?, Exception> { RetrofitEndpoints.of(psi.toUElement() as UMethod) }!!
+    }
 }

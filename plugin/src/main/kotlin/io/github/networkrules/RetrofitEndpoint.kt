@@ -31,6 +31,8 @@ class RetrofitEndpoint(
     /** The response type after unwrapping Call/Response/Single/…; null means no body (Unit, Completable…). */
     val responseType: PsiType?,
     val methodName: String,
+    /** The Retrofit interface the method belongs to. */
+    val service: PsiClass?,
 )
 
 /** Reads Retrofit annotations with UAST, so Kotlin and Java interfaces both work. Call inside a read action. */
@@ -55,7 +57,7 @@ object RetrofitEndpoints {
             httpMethod = (a.findAttributeValue("method")?.evaluate() as? String)?.ifBlank { null } ?: return null
             path = a.findAttributeValue("path")?.evaluate() as? String ?: ""
         }
-        return RetrofitEndpoint(httpMethod, path.orEmpty(), responseType(method), method.name)
+        return RetrofitEndpoint(httpMethod, path.orEmpty(), responseType(method), method.name, method.javaPsi.containingClass)
     }
 
     /** The declared response type, with suspend and Retrofit/Rx/coroutine wrappers removed. */
