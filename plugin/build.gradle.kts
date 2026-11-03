@@ -15,7 +15,14 @@ repositories {
 
 dependencies {
     intellijPlatform {
-        local(providers.gradleProperty("androidStudioPath"))
+        // Compile against a local Android Studio when one is installed (fast, no download);
+        // otherwise (e.g. CI) download the release named by androidStudioVersion.
+        val localStudio = providers.gradleProperty("androidStudioPath").orNull?.takeIf { file(it).exists() }
+        if (localStudio != null) {
+            local(localStudio)
+        } else {
+            androidStudio(providers.gradleProperty("androidStudioVersion"))
+        }
         bundledPlugin("org.jetbrains.android")
     }
 }
