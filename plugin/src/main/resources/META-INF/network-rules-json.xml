@@ -1,0 +1,6 @@
+<!-- Loaded only when the JSON plugin is present: editor support for shared rules files. -->
+<idea-plugin>
+    <extensions defaultExtensionNs="JavaScript">
+        <JsonSchema.ProviderFactory implementation="io.github.networkrules.RulesJsonSchemaProviderFactory"/>
+    </extensions>
+</idea-plugin>

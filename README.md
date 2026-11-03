@@ -21,11 +21,12 @@ your-app-repo/
   or `[checkout] Payment declined`. Two teams can use the same rule name without clashing.
 * Each developer can hide teams they don't need with **Teams…**. Rules from hidden teams are
   removed from their Rules tab. New team folders appear automatically.
-* To create a new team, export a rule to a new path such as `payments/refunds.json`.
+* To create a new team, use **Create Team…**. **Rename Team…** and **Delete Team…** are under the
+  **⋯** button (and the Tools menu).
 
 ## What you get
 
-Five buttons, added to the right of the **+ / −** buttons in the Rules tab. The same actions are
+Buttons added to the right of the **+ / −** buttons in the Rules tab, with less common actions under **⋯**. The same actions are
 under **Tools → Network Inspector Shared Rules**.
 
 | Button | What it does |
@@ -33,9 +34,13 @@ under **Tools → Network Inspector Shared Rules**.
 | ⟳ **Refresh Shared Rules** | Loads every visible team's files into the Rules tab. If an app is connected, the rules go to the device **immediately**, with no restart. |
 | ⇪ **Export Shared Rules…** | Shows a checklist of your Rules-tab rules. Shared rules go back to their own file. Local rules you check go to the file you pick under "Save new rules to" (`team/file.json`). |
 | ⇩ **Import Rules from File…** | Picks one or more rules files from anywhere on disk (same JSON format) and copies them into a team folder you choose, then refreshes. If a file with that name already exists in the team, the rules are merged and you're asked before same-named rules are replaced. A `[team]` prefix left in imported rule names is removed. |
+| ☑ **Turn On/Off by File…** | Turns every rule in a file on or off at once, so a file works as a scenario (e.g. `checkout/payment-declined.json`). Optionally turns off every other shared rule, to test one scenario at a time. Only changes your Rules tab. |
 | 📁 **Create Team…** | Creates a new team folder with an empty starter `rules.json`, so the team is committed to git and shows up as an Export destination. |
 | ⧩ **Choose Teams…** | Chooses which team folders *you* load. This choice is local and not committed. |
 | 📂 **Show Shared Rules Folder** | Shows `network-inspector-rules/` in the Project view. |
+| ⋯ **Rename Team…** | Renames a team folder. Its rules become `[new name] …` in Studio and keep your on/off choices. |
+| ⋯ **Delete Team…** | Deletes a team folder and its rules, after a confirmation. Git or Local History can undo it until you commit. |
+| ⋯ **Personal Variable Values…** | Sets your own value for a shared variable (your own host, a test account ID). It applies only to your Rules tab and is never exported. |
 
 It also refreshes on its own:
 * **On project open** it imports the folders, so the rules are already in the Rules tab when you
@@ -54,11 +59,15 @@ It also refreshes on its own:
   Unchecking a shared rule removes it from its file. Local rules start unchecked, so scratch rules
   aren't shared by accident. When you export one, it's renamed to `[team] name` in Studio.
   Each file also stores the rule variables (`${NAME}`) its rules use.
-* Run **Refresh** (after `git pull`) before **Export** to avoid overwriting a teammate's newer
-  edits, the same as with any shared file.
+* If a shared file changed since your last refresh (for example a `git pull` during a live
+  session), **Export** warns you and offers to refresh first, so a teammate's edits aren't overwritten.
+* If a file can't be read, the error notification has a link that opens it at the problem line.
 * Don't rename a shared rule inside Studio. Its name is the sync key, so rename it in the JSON instead.
 
 ## File format
+
+Rules files get completion, hover docs and error highlighting in the editor from a bundled JSON
+schema, so typos show up as you type rather than at Refresh time.
 
 See [`examples/network-inspector-rules/`](examples/network-inspector-rules). Each file mirrors
 the Rules tab one to one. Rule names in files have **no** `[team]` prefix; the folder supplies it:
@@ -144,6 +153,7 @@ artifact without creating a release. CI downloads the Android Studio version nam
 
 ```bash
 ./gradlew buildPlugin   # → plugin/build/distributions/network-rules-sync-<ver>.zip
+./gradlew test          # unit tests for the sync logic
 ./gradlew runIde        # sandboxed Android Studio with the plugin, for trying it out
 ```
 

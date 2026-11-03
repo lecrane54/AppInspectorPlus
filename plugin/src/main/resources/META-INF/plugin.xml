@@ -10,6 +10,9 @@
           <li><b>Import</b> copies rules files from anywhere on disk into a team folder.</li>
           <li><b>Refresh</b> loads the team folders into the Rules tab (as <code>[team] name</code>) and sends the rules to the connected app straight away.</li>
           <li><b>Create Team…</b> makes a new team folder with a starter <code>rules.json</code>.</li>
+          <li><b>Turn On/Off by File…</b> switches a whole scenario file on or off at once, just for you.</li>
+          <li><b>Rename Team…</b> and <b>Delete Team…</b> manage team folders; <b>Personal Variable Values…</b> sets your own values for shared variables, never exported.</li>
+          <li>Rules files get completion and error highlighting in the editor.</li>
           <li><b>Teams…</b> lets each developer hide teams they don't need.</li>
           <li>The buttons appear in the Rules tab toolbar and under <i>Tools → Network Inspector Shared Rules</i>.</li>
         </ul>
@@ -18,6 +21,8 @@
 
     <depends>com.intellij.modules.platform</depends>
     <depends>org.jetbrains.android</depends>
+    <!-- Completion and error highlighting in rules files, when the JSON plugin is enabled. -->
+    <depends optional="true" config-file="network-rules-json.xml">com.intellij.modules.json</depends>
 
     <extensions defaultExtensionNs="com.intellij">
         <postStartupActivity implementation="io.github.networkrules.SharedRulesStartup"/>
@@ -37,6 +42,18 @@
         <action id="NetworkRulesSync.CreateTeam" class="io.github.networkrules.CreateTeamAction"
                 text="Create Team…" description="Create a new shared team folder"
                 icon="AllIcons.Actions.NewFolder"/>
+        <action id="NetworkRulesSync.ToggleByFile" class="io.github.networkrules.ToggleRulesByFileAction"
+                text="Turn On/Off by File…" description="Turn every rule in a shared file on or off at once (only in your Rules tab)"
+                icon="AllIcons.Actions.Selectall"/>
+        <action id="NetworkRulesSync.RenameTeam" class="io.github.networkrules.RenameTeamAction"
+                text="Rename Team…" description="Rename a shared team folder"
+                icon="AllIcons.Actions.Edit"/>
+        <action id="NetworkRulesSync.DeleteTeam" class="io.github.networkrules.DeleteTeamAction"
+                text="Delete Team…" description="Delete a shared team folder and its rules"
+                icon="AllIcons.Actions.GC"/>
+        <action id="NetworkRulesSync.Variables" class="io.github.networkrules.PersonalVariablesAction"
+                text="Personal Variable Values…" description="Use your own values for shared rule variables (never exported)"
+                icon="AllIcons.Nodes.Variable"/>
         <action id="NetworkRulesSync.Teams" class="io.github.networkrules.ChooseTeamsAction"
                 text="Choose Teams…" description="Choose which team folders to load shared rules from"
                 icon="AllIcons.General.Filter"/>
@@ -44,21 +61,36 @@
                 text="Show Shared Rules Folder" description="Show network-inspector-rules/ in the Project view"
                 icon="AllIcons.Actions.MenuOpen"/>
 
+        <group id="NetworkRulesSync.More" text="More Shared Rules Actions" popup="true" icon="AllIcons.Actions.More">
+            <reference ref="NetworkRulesSync.RenameTeam"/>
+            <reference ref="NetworkRulesSync.DeleteTeam"/>
+            <separator/>
+            <reference ref="NetworkRulesSync.Variables"/>
+        </group>
+
         <group id="NetworkRulesSync.Toolbar">
             <reference ref="NetworkRulesSync.Refresh"/>
             <reference ref="NetworkRulesSync.Export"/>
             <reference ref="NetworkRulesSync.Import"/>
+            <reference ref="NetworkRulesSync.ToggleByFile"/>
             <reference ref="NetworkRulesSync.CreateTeam"/>
             <reference ref="NetworkRulesSync.Teams"/>
             <reference ref="NetworkRulesSync.Open"/>
+            <reference ref="NetworkRulesSync.More"/>
         </group>
 
         <group id="NetworkRulesSync.ToolsMenu" text="Network Inspector Shared Rules" popup="true">
             <reference ref="NetworkRulesSync.Refresh"/>
             <reference ref="NetworkRulesSync.Export"/>
             <reference ref="NetworkRulesSync.Import"/>
+            <reference ref="NetworkRulesSync.ToggleByFile"/>
+            <separator/>
             <reference ref="NetworkRulesSync.CreateTeam"/>
+            <reference ref="NetworkRulesSync.RenameTeam"/>
+            <reference ref="NetworkRulesSync.DeleteTeam"/>
             <reference ref="NetworkRulesSync.Teams"/>
+            <separator/>
+            <reference ref="NetworkRulesSync.Variables"/>
             <reference ref="NetworkRulesSync.Open"/>
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </group>

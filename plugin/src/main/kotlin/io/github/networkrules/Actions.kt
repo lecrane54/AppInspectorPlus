@@ -20,13 +20,16 @@ import com.intellij.openapi.wm.ToolWindowId
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.psi.PsiManager
 import com.intellij.ui.CheckBoxList
+import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.panel
+import com.intellij.ui.table.JBTable
 import com.intellij.util.ui.JBUI
 import javax.swing.JComponent
+import javax.swing.table.DefaultTableModel
 
 abstract class ProjectAction : DumbAwareAction() {
     override fun getActionUpdateThread() = ActionUpdateThread.EDT
@@ -54,8 +57,34 @@ class ExportSharedRulesAction : ProjectAction() {
             Messages.showInfoMessage(project, "Create rules in Network Inspector → Rules first.", "Nothing to Export")
             return
         }
-        val dialog = ExportDialog(project, rows, service.allFilePaths())
+        if (!confirmNotStale(project, service)) return
+        val dialog = ExportDialog(project, service.studioRules().map { ExportRow(it.name, service.originOf(it.name)) }, service.allFilePaths())
         if (dialog.showAndGet()) service.export(dialog.selected(), dialog.target())
+    }
+}
+
+/**
+ * Warns when shared files changed since the last refresh (e.g. a git pull during a live session).
+ * Returns true to go on with the export, after refreshing if the developer chose to.
+ */
+private fun confirmNotStale(project: Project, service: SharedRulesService): Boolean {
+    val stale = service.staleFiles()
+    if (stale.isEmpty()) return true
+    val choice = Messages.showDialog(
+        project,
+        "These files changed on disk since your last refresh, for example by a git pull:\n\n" +
+            stale.joinToString("\n") { "•  $it" } +
+            "\n\nExporting now would overwrite them with your Studio version and drop any rules you haven't loaded yet.\n\n" +
+            "Refresh loads the new versions first. Edits you made in Studio to rules from these files and haven't exported are replaced.",
+        "Shared Rules Changed Since Last Refresh",
+        arrayOf("Refresh, Then Export", "Export Anyway", "Cancel"),
+        0,
+        Messages.getWarningIcon(),
+    )
+    return when (choice) {
+        0 -> { service.refresh(notifyResult = false); true }
+        1 -> true
+        else -> false
     }
 }
 
@@ -75,7 +104,7 @@ class ImportSharedRulesAction : ProjectAction() {
         val errors = mutableListOf<String>()
         for (f in chosen) {
             try {
-                parsed += ImportRow(sanitizeFileName(f.name), service.parseImport(f))
+                parsed += ImportRow(RulesLogic.sanitizeFileName(f.name), service.parseImport(f))
             } catch (ex: IllegalArgumentException) {
                 errors += "${f.name}: ${ex.message}"
             }
@@ -107,12 +136,6 @@ class ImportSharedRulesAction : ProjectAction() {
             if (answer != Messages.YES) return
         }
         service.importRules(parsed.map { it.fileName to it.content }, team)
-    }
-
-    /** Keeps the picked file's name, but only with characters a team file path allows. */
-    private fun sanitizeFileName(name: String): String {
-        val base = name.substringBeforeLast('.').replace(Regex("[^A-Za-z0-9 _.-]"), "-").trim('-', '.', ' ').ifEmpty { "imported" }
-        return "$base.json"
     }
 }
 
@@ -165,19 +188,7 @@ class CreateTeamAction : ProjectAction() {
             "Create Team",
             null,
             "",
-            object : InputValidatorEx {
-                override fun getErrorText(inputString: String): String? {
-                    val name = inputString.trim()
-                    return when {
-                        name.isEmpty() -> null
-                        !SharedRulesService.VALID_TEAM.matches(name) -> "Use letters, digits, spaces, '_', '-' or '.'"
-                        name in existing -> "Team \"$name\" already exists"
-                        else -> null
-                    }
-                }
-                override fun checkInput(inputString: String) = inputString.isNotBlank() && getErrorText(inputString) == null
-                override fun canClose(inputString: String) = checkInput(inputString)
-            },
+            TeamNameValidator(existing),
         )?.trim() ?: return
 
         val relPath = try {
@@ -191,6 +202,175 @@ class CreateTeamAction : ProjectAction() {
             "Created ${SharedRulesService.ROOT_DIR}/$relPath.\n\nExport rules to \"$relPath\" to share them with this team.",
             "Team Created",
         )
+    }
+}
+
+/** Accepts a new, valid team folder name. */
+private class TeamNameValidator(private val existing: Set<String>) : InputValidatorEx {
+    override fun getErrorText(inputString: String): String? {
+        val name = inputString.trim()
+        return when {
+            name.isEmpty() -> null
+            !SharedRulesService.VALID_TEAM.matches(name) -> "Use letters, digits, spaces, '_', '-' or '.'"
+            name in existing -> "Team \"$name\" already exists"
+            else -> null
+        }
+    }
+    override fun checkInput(inputString: String) = inputString.isNotBlank() && getErrorText(inputString) == null
+    override fun canClose(inputString: String) = checkInput(inputString)
+}
+
+/** Asks which team to act on; null if there are none or the developer cancels. */
+private fun chooseTeam(project: Project, service: SharedRulesService, title: String, prompt: String): String? {
+    val teams = service.allTeams()
+    if (teams.isEmpty()) {
+        Messages.showInfoMessage(project, "No team folders yet. Use Create Team… to make one.", "No Teams")
+        return null
+    }
+    if (teams.size == 1) return teams.single()
+    val i = Messages.showChooseDialog(project, prompt, title, null, teams.toTypedArray(), teams.first())
+    return teams.getOrNull(i)
+}
+
+/** Rename a team folder. Its rules keep each developer's on/off choice. */
+class RenameTeamAction : ProjectAction() {
+    override fun actionPerformed(e: AnActionEvent) {
+        val project = e.project ?: return
+        val service = SharedRulesService.getInstance(project)
+        val old = chooseTeam(project, service, "Rename Team", "Team to rename:") ?: return
+        val new = Messages.showInputDialog(
+            project,
+            "New name for \"$old\". Its rules show up as [new name] in the Rules tab.",
+            "Rename Team",
+            null,
+            old,
+            TeamNameValidator(service.allTeams().toSet()),
+        )?.trim() ?: return
+        try {
+            service.renameTeam(old, new)
+        } catch (ex: Exception) {
+            Messages.showErrorDialog(project, ex.message ?: ex.javaClass.simpleName, "Can't Rename Team")
+        }
+    }
+}
+
+/** Delete a team folder and its rules, after a confirmation. */
+class DeleteTeamAction : ProjectAction() {
+    override fun actionPerformed(e: AnActionEvent) {
+        val project = e.project ?: return
+        val service = SharedRulesService.getInstance(project)
+        val team = chooseTeam(project, service, "Delete Team", "Team to delete:") ?: return
+        val (files, rules) = service.teamSummary(team)
+        val answer = Messages.showYesNoDialog(
+            project,
+            "Delete ${SharedRulesService.ROOT_DIR}/$team/ with its $files file(s) and $rules rule(s)?\n\n" +
+                "This removes the team for everyone once you commit. Until then, git or Local History can bring it back.",
+            "Delete Team?",
+            "Delete",
+            "Cancel",
+            Messages.getWarningIcon(),
+        )
+        if (answer != Messages.YES) return
+        try {
+            service.deleteTeam(team)
+        } catch (ex: Exception) {
+            Messages.showErrorDialog(project, ex.message ?: ex.javaClass.simpleName, "Can't Delete Team")
+        }
+    }
+}
+
+/** Turn every rule of a file (a scenario such as checkout/payment-declined.json) on or off at once. */
+class ToggleRulesByFileAction : ProjectAction() {
+    override fun actionPerformed(e: AnActionEvent) {
+        val project = e.project ?: return
+        val service = SharedRulesService.getInstance(project)
+        val files = service.rulesByFile().map { (path, rules) ->
+            RulesLogic.FileActivity(path, rules.count { it.isActive }, rules.size)
+        }.filter { it.total > 0 }
+        if (files.isEmpty()) {
+            Messages.showInfoMessage(project, "No shared rules are loaded. Refresh, or use Create Team… or Import first.", "No Shared Rules")
+            return
+        }
+        val dialog = ToggleByFileDialog(project, files)
+        if (dialog.showAndGet()) {
+            service.applyActivity(RulesLogic.activityPlan(files, dialog.checked(), dialog.exclusive()))
+        }
+    }
+}
+
+private class ToggleByFileDialog(project: Project, private val files: List<RulesLogic.FileActivity>) : DialogWrapper(project) {
+    private val list = CheckBoxList<RulesLogic.FileActivity>().apply {
+        for (f in files) {
+            val state = when {
+                f.allOn -> "all ${f.total} on"
+                f.on == 0 -> "${f.total} off"
+                else -> "${f.on} of ${f.total} on"
+            }
+            addItem(f, "${f.path}   ($state)", f.allOn)
+        }
+    }
+    private val exclusiveBox = JBCheckBox("Turn off every other shared rule")
+
+    init {
+        title = "Turn Shared Rules On or Off"
+        setOKButtonText("Apply")
+        init()
+    }
+
+    override fun createCenterPanel(): JComponent = panel {
+        row { label("Checked files have all their rules turned on. Unchecking a file that's all on turns it off.") }
+        row { cell(JBScrollPane(list)).align(Align.FILL) }.resizableRow()
+        row { cell(exclusiveBox).comment("Use this to test one scenario at a time. Your own (non-shared) rules aren't affected.") }
+        row { comment("This only changes your Rules tab. Nothing is written to the shared files.") }
+    }.apply { preferredSize = JBUI.size(520, 360) }
+
+    fun checked(): Set<String> = files.filterIndexed { i, _ -> list.isItemSelected(i) }.map { it.path }.toSet()
+    fun exclusive(): Boolean = exclusiveBox.isSelected
+}
+
+/** Set personal values for shared variables, e.g. your own host or test account. Never exported. */
+class PersonalVariablesAction : ProjectAction() {
+    override fun actionPerformed(e: AnActionEvent) {
+        val project = e.project ?: return
+        val service = SharedRulesService.getInstance(project)
+        val shared = service.sharedVariables()
+        if (shared.isEmpty()) {
+            Messages.showInfoMessage(project, "None of the shared rules files define variables yet.", "No Shared Variables")
+            return
+        }
+        val dialog = PersonalVariablesDialog(project, shared, service.localVariables)
+        if (dialog.showAndGet()) service.setLocalVariables(dialog.values())
+    }
+}
+
+private class PersonalVariablesDialog(
+    project: Project,
+    shared: Map<String, String>,
+    local: Map<String, String>,
+) : DialogWrapper(project) {
+    private val names = shared.keys.toList()
+    private val model = object : DefaultTableModel(
+        names.map { arrayOf<Any>(it, shared.getValue(it), local[it].orEmpty()) }.toTypedArray(),
+        arrayOf("Variable", "Shared value", "Your value"),
+    ) {
+        override fun isCellEditable(row: Int, column: Int) = column == 2
+    }
+    private val table = JBTable(model).apply { putClientProperty("terminateEditOnFocusLost", true) }
+
+    init {
+        title = "Personal Variable Values"
+        init()
+    }
+
+    override fun createCenterPanel(): JComponent = panel {
+        row { label("<html>Your values replace the shared ones in <b>your</b> Rules tab only. Leave a value empty to use the shared one.</html>") }
+        row { cell(JBScrollPane(table)).align(Align.FILL) }.resizableRow()
+        row { comment("Stored in your workspace settings; Export always writes the shared value.") }
+    }.apply { preferredSize = JBUI.size(560, 320) }
+
+    fun values(): Map<String, String> {
+        table.cellEditor?.stopCellEditing()
+        return names.indices.associate { i -> names[i] to (model.getValueAt(i, 2) as? String).orEmpty().trim() }
     }
 }
 

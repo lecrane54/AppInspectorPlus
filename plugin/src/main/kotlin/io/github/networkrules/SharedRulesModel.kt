@@ -9,7 +9,6 @@ import com.android.tools.idea.appinspection.inspectors.network.model.rules.RuleD
 import com.android.tools.idea.appinspection.inspectors.network.model.rules.RuleData.HeaderReplacedRuleData
 import com.android.tools.idea.appinspection.inspectors.network.model.rules.RuleData.TransformationRuleData
 import com.android.tools.idea.appinspection.inspectors.network.model.rules.RuleVariable
-import com.google.gson.GsonBuilder
 import com.google.gson.JsonElement
 import com.google.gson.JsonParser
 import com.google.gson.JsonPrimitive
@@ -79,7 +78,7 @@ data class SharedBodyRule(
 
 object RuleMapper {
     private val LOG = logger<RuleMapper>()
-    val gson = GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create()!!
+    val gson get() = RulesLogic.gson
 
     fun toShared(rd: RuleData): SharedRule {
         val c = rd.criteria

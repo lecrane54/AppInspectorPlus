@@ -24,7 +24,9 @@ dependencies {
             androidStudio(providers.gradleProperty("androidStudioVersion"))
         }
         bundledPlugin("org.jetbrains.android")
+        bundledPlugin("com.intellij.modules.json")
     }
+    testImplementation("junit:junit:4.13.2")
 }
 
 intellijPlatform {

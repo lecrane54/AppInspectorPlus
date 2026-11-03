@@ -1,0 +1,122 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Network Inspector shared rules",
+  "description": "A rules file in network-inspector-rules/<team>/. Each rule shows up in Android Studio's Network Inspector Rules tab as \"[team] name\".",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": { "description": "File format version.", "const": 1 },
+    "variables": {
+      "description": "Variables used by rules as ${NAME}. Developers can set personal values with Personal Variable Values….",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[A-Za-z0-9_]+$", "description": "Referenced as ${NAME}." },
+          "value": { "type": "string" }
+        }
+      }
+    },
+    "rules": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/rule" }
+    }
+  },
+  "definitions": {
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique within the team. Don't add a [team] prefix; the folder supplies it. Renaming a rule here is how you rename it in Studio."
+        },
+        "criteria": { "$ref": "#/definitions/criteria" },
+        "statusCode": {
+          "description": "Rewrites the response status code.",
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "active": { "type": "boolean", "default": true },
+            "findCode": { "type": "string", "description": "Only rewrite responses with this code. Empty means any code." },
+            "newCode": { "type": "string", "description": "The status code to return, e.g. \"500\"." }
+          }
+        },
+        "headers": { "type": "array", "items": { "$ref": "#/definitions/header" } },
+        "body": { "type": "array", "items": { "$ref": "#/definitions/body" } }
+      }
+    },
+    "criteria": {
+      "description": "Which requests the rule applies to. Empty fields match anything.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol": { "enum": ["HTTPS", "HTTP"], "default": "HTTPS" },
+        "host": { "type": "string", "description": "e.g. api.example.com or ${API_HOST}" },
+        "port": { "type": "string" },
+        "path": { "type": "string", "description": "e.g. /v1/profile" },
+        "query": { "type": "string" },
+        "method": {
+          "enum": ["ANY", "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "TRACE", "CONNECT", "OPTIONS"],
+          "default": "ANY"
+        }
+      }
+    },
+    "header": {
+      "type": "object",
+      "required": ["type"],
+      "oneOf": [
+        {
+          "description": "Adds a response header.",
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "add" },
+            "name": { "type": "string" },
+            "value": { "type": "string" }
+          }
+        },
+        {
+          "description": "Finds a response header by name and/or value and replaces it.",
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "replace" },
+            "findName": { "type": "string" },
+            "findNameRegex": { "type": "boolean" },
+            "findValue": { "type": "string" },
+            "findValueRegex": { "type": "boolean" },
+            "newName": { "type": "string" },
+            "newValue": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "body": {
+      "type": "object",
+      "required": ["type"],
+      "oneOf": [
+        {
+          "description": "Replaces the whole response body. A JSON body can be written as real JSON; anything else as a string.",
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "replace" },
+            "body": {}
+          }
+        },
+        {
+          "description": "Finds text in the response body and replaces it.",
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "modify" },
+            "targetText": { "type": "string" },
+            "regex": { "type": "boolean" },
+            "newText": { "type": "string" }
+          }
+        }
+      ]
+    }
+  }
+}
