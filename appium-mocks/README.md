@@ -97,7 +97,7 @@ am broadcast -a com.example.mockrules.CONTROL -p <your.package> -f 0x20 <extras>
 | `--es enable "login,[checkout] Payment declined"` | Enables more. Accepts `team/file.json`, `team`, `[team] rule name`, or `*` |
 | `--es disable "login"` | Turns those off |
 | `--ez clear true` | Turns everything off and drops variable values |
-| `--es var "API_HOST=api.staging.example.com"` | Sets a variable. `--es unvar API_HOST` removes it |
+| `--es var "API_HOST=api.staging.example.com"` | Sets variables (comma-separated: `"A=1,B=2"`). `--es unvar API_HOST` removes one |
 | `--ez callServer true` | Always calls the server and rewrites its response (Studio's behavior) |
 | `--ez reload true` | Re-reads the rules files, e.g. after pushing new ones |
 
@@ -145,3 +145,12 @@ A pushed file replaces the bundled file with the same path.
 
 * Every mocked response has an `X-Mock-Rules` header listing the rules applied.
 * `adb logcat -s MockRules` shows what was loaded, what's enabled, and files that couldn't be read.
+
+## Local variables
+
+Variables that are only **declared** in a team file (`"local": true`, e.g. an email address or a
+token) have no value in the files, so the interceptor can't know it. Pass it with the broadcast:
+`--es var "EMAIL=qa@example.com"`. Until it's set, rules that use it send `${EMAIL}` as text.
+
+In Android Studio, **Variables → Copy adb Arguments for Appium** copies your own values in this form.
+In CI, build the argument from secrets (e.g. `"EMAIL=$QA_EMAIL"`) rather than committing it in test code.

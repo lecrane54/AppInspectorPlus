@@ -171,6 +171,15 @@ class MockRulesEngineTest {
         assertEquals("10.0.0.5", engine.variables()["API_HOST"])
     }
 
+    @Test fun `declared local variables have no file value and come from overrides`() {
+        val f = """{ "variables": [ { "name": "EMAIL", "local": true, "description": "QA account" } ], "rules": [] }"""
+        engine.variableOverrides = emptyMap()
+        load("login/vars.json" to f)
+        assertEquals(null, engine.variables()["EMAIL"])
+        engine.variableOverrides = mapOf("EMAIL" to "qa@example.com")
+        assertEquals("qa@example.com", engine.variables()["EMAIL"])
+    }
+
     @Test fun `loader runs once, on the first request`() {
         var loads = 0
         engine.loader = { loads++; load("login/profile.json" to profileReplaced); engine.enabled = setOf("login") }

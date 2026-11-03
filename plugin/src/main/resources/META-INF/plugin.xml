@@ -11,7 +11,9 @@
           <li><b>Refresh</b> loads the team folders into the Rules tab (as <code>[team] name</code>) and sends the rules to the connected app straight away.</li>
           <li><b>Create Team…</b> makes a new team folder with a starter <code>rules.json</code>.</li>
           <li><b>Turn On/Off by File…</b> switches a whole scenario file on or off at once, just for you.</li>
-          <li><b>Rename Team…</b> and <b>Delete Team…</b> manage team folders; <b>Personal Variable Values…</b> sets your own values for shared variables, never exported.</li>
+          <li><b>Rename Team…</b> and <b>Delete Team…</b> manage team folders.</li>
+          <li>A <b>Variables</b> tab next to Rules lists shared variables (committed in team files), local variables (only on your machine, never committed, optionally declared in a team file) and missing ones, and lets you add, remove, share or make them local.</li>
+          <li>Emails and tokens typed into rules are caught before they're written to a team file, with an offer to replace them by local variables.</li>
           <li><b>Create Network Rule from Endpoint…</b>: right-click a Retrofit method to make a rule for it, with a sample response built from its return type. Set your base URL under <i>Settings → Tools → Network Inspector Shared Rules</i>.</li>
           <li>Rules files get completion and error highlighting in the editor.</li>
           <li><b>Teams…</b> lets each developer hide teams they don't need.</li>
@@ -59,7 +61,7 @@
                 text="Delete Team…" description="Delete a shared team folder and its rules"
                 icon="AllIcons.Actions.GC"/>
         <action id="NetworkRulesSync.Variables" class="io.github.networkrules.PersonalVariablesAction"
-                text="Personal Variable Values…" description="Use your own values for shared rule variables (never exported)"
+                text="Variables…" description="Show rule variables: shared, local (never committed) and missing"
                 icon="AllIcons.Nodes.Variable"/>
         <action id="NetworkRulesSync.Teams" class="io.github.networkrules.ChooseTeamsAction"
                 text="Choose Teams…" description="Choose which team folders to load shared rules from"

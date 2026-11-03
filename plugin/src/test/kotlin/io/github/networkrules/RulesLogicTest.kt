@@ -101,15 +101,27 @@ class RulesLogicTest {
         assertEquals(setOf("API_HOST", "USER_ID"), RulesLogic.usedVariables(listOf(r)))
     }
 
-    @Test fun `export writes Studio's value for used variables`() {
+    @Test fun `export writes Studio's value for used shared variables`() {
         val out = RulesLogic.exportVariables(
             existing = listOf(SharedVariable("KEEP", "k")),
             studio = mapOf("HOST" to "studio-host", "UNUSED" to "u"),
             used = setOf("HOST"),
             overridden = emptySet(),
-            sharedDefaults = emptyMap(),
+            sharedDefaults = mapOf("HOST" to "old-host"),
         )
         assertEquals(mapOf("KEEP" to "k", "HOST" to "studio-host"), out.associate { it.name to it.value })
+    }
+
+    @Test fun `export never writes a variable that isn't shared`() {
+        // e.g. an email made in Studio's own Variables dialog, or a local variable.
+        val out = RulesLogic.exportVariables(
+            existing = emptyList(),
+            studio = mapOf("EMAIL" to "me@example.com"),
+            used = setOf("EMAIL"),
+            overridden = emptySet(),
+            sharedDefaults = emptyMap(),
+        )
+        assertTrue(out.isEmpty())
     }
 
     @Test fun `export never writes a personal override`() {

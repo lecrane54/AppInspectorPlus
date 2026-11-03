@@ -64,7 +64,8 @@ object MockRulesFormat {
         val vars = linkedMapOf<String, String>()
         root.optJSONArray("variables")?.objects()?.forEach { v ->
             val name = v.optString("name")
-            if (name.isNotEmpty()) vars[name] = v.optString("value")
+            // "local": true only declares the variable; each run supplies the value (--es var).
+            if (name.isNotEmpty() && !v.optBoolean("local", false)) vars[name] = v.optString("value")
         }
 
         val rules = root.optJSONArray("rules")?.objects().orEmpty().mapNotNull { r ->

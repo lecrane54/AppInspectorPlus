@@ -59,7 +59,13 @@ class ExportSharedRulesAction : ProjectAction() {
         }
         if (!confirmNotStale(project, service)) return
         val dialog = ExportDialog(project, service.studioRules().map { ExportRow(it.name, service.originOf(it.name)) }, service.allFilePaths())
-        if (dialog.showAndGet()) service.export(dialog.selected(), dialog.target())
+        if (!dialog.showAndGet()) return
+        val selected = dialog.selected()
+        // Emails and tokens typed into the rules: offer to turn them into local variables first.
+        val toWrite = service.studioRules().filter { it.name in selected }.associate { it.name to RuleMapper.toShared(it) }
+        val replacements = SensitiveCheck.review(project, service, toWrite) ?: return
+        service.replaceInStudioRules(selected, replacements)
+        service.export(selected, dialog.target())
     }
 }
 
@@ -329,48 +335,13 @@ private class ToggleByFileDialog(project: Project, private val files: List<Rules
 }
 
 /** Set personal values for shared variables, e.g. your own host or test account. Never exported. */
+/**
+ * Opens the Variables tab next to Network Inspector's Rules tab, or the same table in a dialog when
+ * no inspector session is showing.
+ */
 class PersonalVariablesAction : ProjectAction() {
     override fun actionPerformed(e: AnActionEvent) {
-        val project = e.project ?: return
-        val service = SharedRulesService.getInstance(project)
-        val shared = service.sharedVariables()
-        if (shared.isEmpty()) {
-            Messages.showInfoMessage(project, "None of the shared rules files define variables yet.", "No Shared Variables")
-            return
-        }
-        val dialog = PersonalVariablesDialog(project, shared, service.localVariables)
-        if (dialog.showAndGet()) service.setLocalVariables(dialog.values())
-    }
-}
-
-private class PersonalVariablesDialog(
-    project: Project,
-    shared: Map<String, String>,
-    local: Map<String, String>,
-) : DialogWrapper(project) {
-    private val names = shared.keys.toList()
-    private val model = object : DefaultTableModel(
-        names.map { arrayOf<Any>(it, shared.getValue(it), local[it].orEmpty()) }.toTypedArray(),
-        arrayOf("Variable", "Shared value", "Your value"),
-    ) {
-        override fun isCellEditable(row: Int, column: Int) = column == 2
-    }
-    private val table = JBTable(model).apply { putClientProperty("terminateEditOnFocusLost", true) }
-
-    init {
-        title = "Personal Variable Values"
-        init()
-    }
-
-    override fun createCenterPanel(): JComponent = panel {
-        row { label("<html>Your values replace the shared ones in <b>your</b> Rules tab only. Leave a value empty to use the shared one.</html>") }
-        row { cell(JBScrollPane(table)).align(Align.FILL) }.resizableRow()
-        row { comment("Stored in your workspace settings; Export always writes the shared value.") }
-    }.apply { preferredSize = JBUI.size(560, 320) }
-
-    fun values(): Map<String, String> {
-        table.cellEditor?.stopCellEditing()
-        return names.indices.associate { i -> names[i] to (model.getValueAt(i, 2) as? String).orEmpty().trim() }
+        SharedRulesService.getInstance(e.project ?: return).openVariables()
     }
 }
 

@@ -46,13 +46,63 @@ under **Tools → Network Inspector Shared Rules**.
 | 📂 **Show Shared Rules Folder** | Shows `network-inspector-rules/` in the Project view. |
 | ⋯ **Rename Team…** | Renames a team folder. Its rules become `[new name] …` in Studio and keep your on/off choices. |
 | ⋯ **Delete Team…** | Deletes a team folder and its rules, after a confirmation. Git or Local History can undo it until you commit. |
-| ⋯ **Personal Variable Values…** | Sets your own value for a shared variable (your own host, a test account ID). It applies only to your Rules tab and is never exported. |
+| ⋯ **Variables…** | Opens the **Variables** tab (see below), or the same table in a dialog when no app is connected. |
 
 It also refreshes on its own:
 * **On project open** it imports the folders, so the rules are already in the Rules tab when you
   open Network Inspector.
 * **When a file changes** (`git pull`, a hand edit) and no inspector session is running, it
   updates silently. During a live session you get a notification with a **Refresh now** link.
+
+## Variables: shared and local
+
+Rules can use variables as `${NAME}` (in the host, path, headers or body). A **Variables** tab next to
+Network Inspector's **Rules** tab lists every variable:
+
+| Where | Meaning |
+|---|---|
+| **Shared** · `team/file.json` | Defined in a team file, so its value is **committed**. Good for hosts and IDs everyone uses. |
+| **Local** | Only on your machine (in `.idea/workspace.xml`), **never committed**. Use these for emails, test accounts and tokens. Variables made in Studio's own Rule Variables dialog are local too. |
+| **Local** · declared in `team/file.json` | Local, and a team file *declares* it (name and description, no value), so teammates are asked for their own value. |
+| **Missing** | A rule uses it (or a team file declares it) but you have no value. Type one in **Your value**; it stays local. |
+
+* **Your value** can be edited for any variable and never leaves your machine. For a shared variable it
+  replaces the shared value only in your Rules tab; leave it empty to use the shared value.
+* **Description** tells teammates what to put in a variable (e.g. "Your QA account email"). It's stored
+  in the team files, so it can be edited for shared and declared variables.
+* **+** adds a variable: **Local** (the default), **Local, declared in a team file**, or **Shared** (its
+  value is committed; you're warned if it looks like an email address or a token).
+* **Share in Team File…** puts a local variable in a team file, either **Declare only** (the default:
+  teammates set their own value, nothing is committed) or with its value.
+* **Make Local** takes a shared variable's value out of the team files, leaving a declaration, and
+  keeps the value on your machine. Commit the change; if the value was sensitive it's still in git history.
+* **−** removes a variable, from the team files too after a confirmation.
+* **Copy adb Arguments for Appium** copies your values as `--es var "EMAIL=…,TOKEN=…"` for the
+  [Appium mocks](appium-mocks) broadcast (see below).
+* Changes apply immediately: rules in a connected app are sent again with the new values.
+
+The file format for a declared variable:
+
+```json
+"variables": [
+  { "name": "API_HOST", "value": "api.example.com" },
+  { "name": "EMAIL", "local": true, "description": "Your QA account email" }
+]
+```
+
+**Keeping personal data out of git**
+
+* **Export never writes the value of a variable that isn't already shared.** Rules that use a local
+  variable are written with `${NAME}` as is. If a team file declares the variable, the declaration is
+  carried into the files the rules go to; otherwise the Export notification suggests declaring it.
+* **Emails and tokens typed into rules are caught** before Export, **Save to Team** or **Create Network
+  Rule from Endpoint** write them to a team file: email addresses anywhere in a rule, JWTs and bearer
+  tokens, and the values of headers like `Authorization`, `Cookie` or `X-Api-Key`. A dialog lists them
+  and **Replace and Continue** swaps each for a local variable (e.g. `${EMAIL}`), named after an
+  existing variable that already holds that value when there is one. **Keep Values** writes them as is.
+* **Missing values are flagged.** After a refresh, and when an app connects, a notification lists the
+  variables your rules use but you haven't set (with their descriptions). Until you set them, those
+  rules send the text `${NAME}` as is. **Set values…** opens the Variables tab.
 
 ## Saving a rule to a team from the Rules tab
 
@@ -92,7 +142,7 @@ The dialog is pre-filled, and everything in it can be edited:
 * **Protocol, host and port** from the **Base URL** under
   *Settings → Tools → Network Inspector Shared Rules* (its path is ignored). Leave it empty to match any host.
   The host can be a variable, e.g. `https://${API_HOST}/`, so each developer can point it elsewhere
-  with **Personal Variable Values…**. The setting is stored in `.idea/networkInspectorRules.xml`;
+  in the **Variables** tab. The setting is stored in `.idea/networkInspectorRules.xml`;
   commit that file if you want the team to share it.
 * **Status code** 200, and a **response body** built from the return type. `Call<T>`,
   `Response<T>`, `suspend`, RxJava, `Deferred`, `Flow` and `LiveData` are unwrapped first. Fields use
@@ -124,7 +174,8 @@ the app. It reads these same files, and a test turns scenarios on with an adb br
 * **Export:** a shared rule always goes back to the file it came from, and Studio's version wins.
   Unchecking a shared rule removes it from its file. Local rules start unchecked, so scratch rules
   aren't shared by accident. When you export one, it's renamed to `[team] name` in Studio.
-  Each file also stores the rule variables (`${NAME}`) its rules use.
+  Each file also stores the **shared** variables (`${NAME}`) its rules use. Local variables are never
+  written to a file (see below).
 * If a shared file changed since your last refresh (for example a `git pull` during a live
   session), **Export** warns you and offers to refresh first, so a teammate's edits aren't overwritten.
 * If a file can't be read, the error notification has a link that opens it at the problem line.

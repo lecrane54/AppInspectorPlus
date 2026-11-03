@@ -73,8 +73,14 @@ class CreateRuleFromEndpointAction : DumbAwareAction() {
         )
         if (!dialog.showAndGet()) return
 
-        val rule = dialog.rule()
+        var rule = dialog.rule()
         val target = dialog.target()
+        if (target != null) {
+            // Going into a team file: offer to turn emails and tokens into local variables first.
+            val replacements = SensitiveCheck.review(project, service, mapOf(rule.name.orEmpty() to rule)) ?: return
+            rule = SensitiveData.replace(rule, replacements)
+            service.addLocalValues(replacements.entries.associate { (literal, name) -> name to literal })
+        }
         if (target == null) {
             service.addLocalRule(rule, dialog.turnOn())
             return

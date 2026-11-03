@@ -28,7 +28,18 @@ data class SharedRulesFile(
     var rules: MutableList<SharedRule>? = mutableListOf(),
 )
 
-data class SharedVariable(var name: String? = null, var value: String? = null)
+/**
+ * A variable in a team file. With a value it's shared (committed). With `local: true` it's only
+ * declared: the rules need it, but each developer sets their own value, which is never committed.
+ */
+data class SharedVariable(
+    var name: String? = null,
+    var value: String? = null,
+    var local: Boolean? = null,
+    var description: String? = null,
+) {
+    val isDeclaredLocal: Boolean get() = local == true
+}
 
 data class SharedRule(
     var name: String? = null,
@@ -120,6 +131,26 @@ object RuleMapper {
 
     fun toShared(v: RuleVariable) = SharedVariable(v.name, v.value)
     fun toRuleVariable(v: SharedVariable) = RuleVariable(v.name.orEmpty(), v.value.orEmpty())
+
+    /** Overwrites [rd]'s criteria, status code, headers and body with [s]'s, keeping its id, name and on/off state. */
+    fun copyInto(rd: RuleData, s: SharedRule) {
+        val fresh = toRuleData(s.copy(name = rd.name), rd.id, rd.isActive)
+        rd.criteria.apply {
+            protocol = fresh.criteria.protocol
+            host = fresh.criteria.host
+            port = fresh.criteria.port
+            path = fresh.criteria.path
+            query = fresh.criteria.query
+            method = fresh.criteria.method
+        }
+        rd.statusCodeRuleData.apply {
+            findCode = fresh.statusCodeRuleData.findCode
+            newCode = fresh.statusCodeRuleData.newCode
+            isActive = fresh.statusCodeRuleData.isActive
+        }
+        rd.headerRuleTableModel.items = fresh.headerRuleTableModel.items
+        rd.bodyRuleTableModel.items = fresh.bodyRuleTableModel.items
+    }
 
     private fun headerToShared(t: TransformationRuleData): SharedHeaderRule? = when (t) {
         is HeaderAddedRuleData -> SharedHeaderRule(type = "add", name = t.name, value = t.value)

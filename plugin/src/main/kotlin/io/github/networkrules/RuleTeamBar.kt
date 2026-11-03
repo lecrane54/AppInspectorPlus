@@ -183,6 +183,8 @@ class RuleTeamBar private constructor(private val project: Project, private val 
             )
             if (answer != Messages.YES) return
         }
+        val replacements = SensitiveCheck.review(project, service, mapOf(rule.name to RuleMapper.toShared(rule))) ?: return
+        service.replaceInStudioRules(listOf(rule.name), replacements)
         try {
             service.saveRuleToTeam(rule, target)
         } catch (e: IllegalStateException) {

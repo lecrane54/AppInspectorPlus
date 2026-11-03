@@ -83,9 +83,11 @@ object RulesLogic {
         rules.flatMap { r -> VAR_REF.findAll(gson.toJson(r)).map { it.groupValues[1] } }.toSet()
 
     /**
-     * The variables written to an exported file: everything the file already had, plus Studio's
-     * value of each variable the rules use. A variable with a personal override keeps the shared
-     * value instead, so a developer's own value is never committed.
+     * The variables written to an exported file: everything the file already had, plus each
+     * **already shared** variable the rules use, with Studio's value. A variable that isn't shared
+     * anywhere is local and is never written, so a value like an email address isn't committed by
+     * accident; share it explicitly from the Variables tab. A shared variable with a personal
+     * override keeps the shared value, so a developer's own value is never committed either.
      */
     fun exportVariables(
         existing: List<SharedVariable>,
@@ -93,13 +95,17 @@ object RulesLogic {
         used: Set<String>,
         overridden: Set<String>,
         sharedDefaults: Map<String, String>,
+        declaredLocal: Map<String, SharedVariable> = emptyMap(),
     ): MutableList<SharedVariable> {
         val out = linkedMapOf<String, SharedVariable>()
         for (v in existing) v.name?.let { out[it] = v }
         for (name in used) {
-            if (name in overridden) {
+            if (name in declaredLocal && name !in sharedDefaults) {
+                // Declared local elsewhere: carry the declaration (no value) so this file's readers are told too.
+                if (name !in out) out[name] = declaredLocal.getValue(name).copy(value = null)
+            } else if (name in overridden) {
                 if (name !in out) sharedDefaults[name]?.let { out[name] = SharedVariable(name, it) }
-            } else {
+            } else if (name in sharedDefaults) {
                 studio[name]?.let { out[name] = SharedVariable(name, it) }
             }
         }
@@ -112,6 +118,7 @@ object RulesLogic {
     fun effectiveVariables(files: List<SharedRulesFile>, overrides: Map<String, String>): LinkedHashMap<String, String> {
         val out = linkedMapOf<String, String>()
         for (f in files) for (v in f.variables.orEmpty()) {
+            if (v.isDeclaredLocal) continue
             val name = v.name ?: continue
             if (name !in out) out[name] = v.value.orEmpty()
         }

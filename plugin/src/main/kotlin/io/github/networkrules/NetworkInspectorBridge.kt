@@ -128,6 +128,11 @@ object NetworkInspectorBridge {
             }
         }
 
+        /** Sends every active rule to the device again, as Studio's own Variables dialog does after a change. */
+        fun resendAll() {
+            for (rule in rules.toList()) rule.ruleDataListener?.onRuleDataChanged(rule)
+        }
+
         val component: JComponent get() = view.component
     }
 }

@@ -76,7 +76,10 @@ class SharedRulesService(private val project: Project) :
         /** team/file.json → hash of the content last loaded or written, so Export can spot files changed since. */
         var fileHashes: MutableMap<String, String> = linkedMapOf()
 
-        /** This developer's own values for shared variables. Never written to the shared files. */
+        /**
+         * This developer's own variable values: overrides of shared variables, and local variables
+         * that exist only on this machine. Never written to the shared files.
+         */
         var localVariables: MutableMap<String, String> = linkedMapOf()
 
         /** Groups this developer collapsed in the Rules tab ("" is the local rules group). */
@@ -185,12 +188,7 @@ class SharedRulesService(private val project: Project) :
         files.filter { it.error != null }.takeIf { it.isNotEmpty() }?.let(::notifyUnreadable)
 
         // Variables first: rules are resolved against them when they're sent to the device.
-        // A personal override replaces the shared value, only in this developer's Studio.
-        val vars = NetworkInspectorBridge.variables(project)
-        for ((name, value) in RulesLogic.effectiveVariables(files.mapNotNull { it.content }, data.localVariables)) {
-            vars.removeAll { it.name == name }
-            vars += RuleMapper.toRuleVariable(SharedVariable(name, value))
-        }
+        applyVariablesToStudio(resend = false)
 
         // Desired Studio rules: "[team] name" → (rule, origin). A duplicate name in a team keeps the first.
         val desired = linkedMapOf<String, Pair<SharedRule, String>>()
@@ -228,6 +226,7 @@ class SharedRulesService(private val project: Project) :
         data.origins = desired.mapValuesTo(linkedMapOf()) { it.value.second }
         data.fileHashes = files.associateTo(linkedMapOf()) { it.ref.relPath to it.hash }
 
+        checkMissingVariables()
         if (duplicates.isNotEmpty()) {
             notification("Duplicate rule names skipped", duplicates.joinToString("<br>") { esc(it) }, NotificationType.WARNING).notify(project)
         }
@@ -315,11 +314,12 @@ class SharedRulesService(private val project: Project) :
         // 3) Write only the files whose contents changed. Each file carries the variables its rules use.
         val studioVars = NetworkInspectorBridge.variables(project).associate { it.name to it.value }
         val sharedDefaults = RulesLogic.effectiveVariables(loadFiles(allTeams()).mapNotNull { it.content }, emptyMap())
+        val declared = declaredLocalVariables()
         var written = 0
         for ((path, rules) in output) {
             val vars = RulesLogic.exportVariables(
                 existing[path]?.variables.orEmpty(), studioVars, RulesLogic.usedVariables(rules),
-                data.localVariables.keys, sharedDefaults,
+                data.localVariables.keys, sharedDefaults, declared,
             )
             val text = RuleMapper.gson.toJson(SharedRulesFile(version = 1, variables = vars, rules = rules)) + "\n"
             val old = rootDir()?.findFileByRelativePath(path)?.let { VfsUtilCore.loadText(it) }
@@ -333,9 +333,14 @@ class SharedRulesService(private val project: Project) :
         for ((rule, newName) in renames) rule.name = newName
         refresh(notifyResult = false)
 
+        val localUsed = RulesLogic.usedVariables(output.values.flatten()) - sharedDefaults.keys
+        val undeclared = localUsed - declared.keys
         notification(
             "Exported to $written file(s)",
-            "Saved under $ROOT_DIR/. Commit the changes to share them with your team.",
+            "Saved under $ROOT_DIR/. Commit the changes to share them with your team." +
+                (if (localUsed.isEmpty()) "" else "<br>Local variables weren't exported, only referenced: ${esc(localUsed.sorted().joinToString())}.") +
+                (if (undeclared.isEmpty()) "" else "<br>To have teammates asked for a value, use Variables → Share in Team File → " +
+                    "<i>Declare only</i> for: ${esc(undeclared.sorted().joinToString())}."),
             NotificationType.INFORMATION,
         ).notify(project)
     }
@@ -442,6 +447,7 @@ class SharedRulesService(private val project: Project) :
             RulesLogic.usedVariables(rules),
             data.localVariables.keys,
             sharedVariables(),
+            declaredLocalVariables(),
         )
         writeFile(target, RuleMapper.gson.toJson(SharedRulesFile(1, vars, rules)) + "\n", commandName)
     }
@@ -609,24 +615,202 @@ class SharedRulesService(private val project: Project) :
         }
     }
 
-    // ---- personal variable values ---------------------------------------------------------------
+    // ---- variables ------------------------------------------------------------------------------
 
-    /** Every shared variable (all teams) with its shared value. */
-    fun sharedVariables(): Map<String, String> =
-        RulesLogic.effectiveVariables(loadFiles(allTeams()).mapNotNull { it.content }, emptyMap())
+    /** Every team file's content (all teams, hidden ones too), by team/file.json. */
+    private fun allContents(): Map<String, SharedRulesFile> =
+        loadFiles(allTeams()).filter { it.content != null }.associate { it.ref.relPath to it.content!! }
+
+    /** Every shared variable (all teams) with its shared value. Declared-local variables have none. */
+    fun sharedVariables(): Map<String, String> = sharedVariableDefinitions().mapValues { it.value.value }
+
+    fun sharedVariableDefinitions(): Map<String, VariableLogic.SharedDefinition> = VariableLogic.sharedDefinitions(allContents())
+
+    /** Variables team files declare as local, as the entries Export carries into other files. */
+    fun declaredLocalVariables(): Map<String, SharedVariable> =
+        VariableLogic.declarations(allContents()).mapValues { (name, d) -> VariableLogic.declarationOf(name, d.description) }
 
     val localVariables: Map<String, String> get() = data.localVariables
 
-    /** Replaces this developer's overrides (blank values are dropped) and applies them. */
-    fun setLocalVariables(values: Map<String, String>) {
-        data.localVariables = values.filterValues { it.isNotEmpty() }.toMutableMap()
-        // A variable whose override was cleared goes back to its shared value on refresh.
-        refresh(notifyResult = false)
+    /** Everything the Variables tab lists. */
+    fun variableRows(): List<VariableLogic.Row> {
+        val contents = allContents()
+        val used = linkedMapOf<String, Int>()
+        for (rule in studioRules()) {
+            for (name in RulesLogic.usedVariables(listOf(RuleMapper.toShared(rule)))) used[name] = (used[name] ?: 0) + 1
+        }
+        val studio = NetworkInspectorBridge.variables(project).associate { it.name to it.value }
+        return VariableLogic.rows(
+            VariableLogic.sharedDefinitions(contents), data.localVariables, studio, used, VariableLogic.declarations(contents),
+        )
+    }
+
+    /**
+     * Puts every shared and local variable into Studio's variable list. With [resend], the rules in
+     * a live session are sent to the device again so they pick up the new values.
+     */
+    fun applyVariablesToStudio(resend: Boolean = true, removed: Collection<String> = emptyList()) {
+        val vars = NetworkInspectorBridge.variables(project)
+        vars.removeAll { it.name in removed }
+        for ((name, value) in VariableLogic.studioValues(sharedVariableDefinitions(), data.localVariables)) {
+            val existing = vars.firstOrNull { it.name == name }
+            if (existing != null) existing.value = value else vars += RuleMapper.toRuleVariable(SharedVariable(name, value))
+        }
+        if (resend) NetworkInspectorBridge.findLiveTable(project)?.resendAll()
+        VariablesPanel.reloadAll(project)
+    }
+
+    /** Names in the last "variables not set" warning, so it isn't repeated for the same set. */
+    private var lastMissingWarning: Set<String> = emptySet()
+
+    /**
+     * Warns when rules use (or team files declare) variables this developer has no value for: the
+     * device would otherwise get the literal text `${NAME}`. Repeated only when the set changes.
+     */
+    fun checkMissingVariables() {
+        val missing = VariableLogic.missing(variableRows()).filter { it.usedBy > 0 }
+        val names = missing.map { it.name }.toSet()
+        if (names == lastMissingWarning) return
+        lastMissingWarning = names
+        if (missing.isEmpty()) return
+        val lines = missing.joinToString("<br>") { r ->
+            "<b>${esc(r.name)}</b>" + (r.description?.let { " – ${esc(it)}" } ?: "") + " (${r.usedBy} rule${if (r.usedBy == 1) "" else "s"})"
+        }
         notification(
-            "Variable values updated",
-            "${data.localVariables.size} personal value(s) in use. They stay on your machine and are never exported.",
+            "Rules use variables you haven't set",
+            "$lines<br>Until you set them, those rules send the text \${NAME} as is.",
+            NotificationType.WARNING,
+        ).addAction(NotificationAction.createSimpleExpiring("Set values…") { openVariables() })
+            .notify(project)
+    }
+
+    fun openVariables() {
+        if (!VariablesPanel.selectTab(project)) VariablesPanel.showDialog(project)
+    }
+
+    /**
+     * Sets this developer's value. For a shared variable it's an override (empty goes back to the
+     * shared value); otherwise it's a local variable. Never written to the shared files.
+     */
+    fun setVariableValue(name: String, value: String) {
+        val isShared = name in sharedVariableDefinitions()
+        if (isShared && value.isEmpty()) data.localVariables.remove(name) else data.localVariables[name] = value
+        applyVariablesToStudio()
+        checkMissingVariables()
+    }
+
+    /** Adds local values (e.g. from Replace with Variable) and applies them. */
+    fun addLocalValues(values: Map<String, String>) {
+        if (values.isEmpty()) return
+        data.localVariables.putAll(values)
+        applyVariablesToStudio()
+    }
+
+    /** Adds a local variable: only on this machine, never committed. With [declareIn], team files are told it exists. */
+    fun addLocalVariable(name: String, value: String, declareIn: String? = null, description: String? = null) {
+        check(VariableLogic.VALID_NAME.matches(name)) { "Use letters, digits and _ only." }
+        check(name !in sharedVariableDefinitions()) { "$name is already a shared variable; set your own value for it instead." }
+        data.localVariables[name] = value
+        if (declareIn != null) {
+            val content = existingContent(declareIn) ?: SharedRulesFile()
+            writeFile(declareIn, RuleMapper.gson.toJson(VariableLogic.withDeclaration(content, name, description)) + "\n", "Declare Local Variable")
+        }
+        applyVariablesToStudio()
+    }
+
+    /** Adds (or updates) a shared variable in [target] (team/file.json). Its value is committed. */
+    fun addSharedVariable(name: String, value: String, target: String, description: String? = null) {
+        check(VariableLogic.VALID_NAME.matches(name)) { "Use letters, digits and _ only." }
+        val content = existingContent(target) ?: SharedRulesFile()
+        writeFile(target, RuleMapper.gson.toJson(VariableLogic.withVariable(content, name, value, description)) + "\n", "Add Shared Variable")
+        // The shared value is now the value; a leftover local value of the same name would hide it.
+        data.localVariables.remove(name)
+        data.hiddenTeams.remove(target.substringBefore('/'))
+        applyVariablesToStudio()
+        notification(
+            "Shared variable $name added",
+            "Saved to $ROOT_DIR/${esc(target)}. Commit the file to share it.",
             NotificationType.INFORMATION,
         ).notify(project)
+    }
+
+    /**
+     * Turns a shared variable into a local one. In every team file its value is replaced by a
+     * declaration (no value), so it's no longer committed and teammates are told to set their own.
+     * This developer keeps the current value on their machine.
+     */
+    fun makeVariableLocal(name: String) {
+        val def = sharedVariableDefinitions()[name] ?: return
+        data.localVariables[name] = data.localVariables[name]?.takeIf { it.isNotEmpty() } ?: def.value
+        for (path in def.files) {
+            val content = existingContent(path) ?: continue
+            writeFile(path, RuleMapper.gson.toJson(VariableLogic.withDeclaration(content, name, def.description)) + "\n", "Make Variable Local")
+        }
+        applyVariablesToStudio()
+        notification(
+            "$name is now local",
+            "Its value was removed from ${def.files.joinToString { esc(it) }}, which now only declare it. Commit the change; " +
+                "teammates set their own value in the Variables tab. If the old value was sensitive, it's still in git history.",
+            NotificationType.INFORMATION,
+        ).notify(project)
+    }
+
+    /**
+     * Shares a local variable in [target]: with its value, or with [declareOnly] just a declaration
+     * (teammates are told to set their own value, nothing is committed).
+     */
+    fun shareVariable(name: String, target: String, declareOnly: Boolean, description: String?) {
+        val value = data.localVariables[name]
+            ?: NetworkInspectorBridge.variables(project).firstOrNull { it.name == name }?.value
+            ?: ""
+        if (declareOnly) {
+            data.localVariables[name] = value
+            val content = existingContent(target) ?: SharedRulesFile()
+            writeFile(target, RuleMapper.gson.toJson(VariableLogic.withDeclaration(content, name, description)) + "\n", "Declare Local Variable")
+            data.hiddenTeams.remove(target.substringBefore('/'))
+            applyVariablesToStudio()
+            notification(
+                "$name declared in ${esc(target)}",
+                "Teammates will be asked for their own value. Your value stays on this machine. Commit the file to share it.",
+                NotificationType.INFORMATION,
+            ).notify(project)
+        } else {
+            addSharedVariable(name, value, target, description)
+        }
+    }
+
+    /** Changes the description in every team file that defines or declares [name]. */
+    fun setVariableDescription(name: String, description: String) {
+        for ((path, content) in allContents()) {
+            if (content.variables.orEmpty().none { it.name == name }) continue
+            writeFile(path, RuleMapper.gson.toJson(VariableLogic.withDescription(content, name, description)) + "\n", "Describe Variable")
+        }
+        VariablesPanel.reloadAll(project)
+    }
+
+    /** Removes a variable: from the team files that define or declare it, and from this machine. */
+    fun removeVariable(name: String) {
+        for ((path, content) in allContents()) {
+            if (content.variables.orEmpty().none { it.name == name }) continue
+            writeFile(path, RuleMapper.gson.toJson(VariableLogic.withoutVariable(content, name)) + "\n", "Remove Variable")
+        }
+        data.localVariables.remove(name)
+        applyVariablesToStudio(removed = listOf(name))
+    }
+
+    /**
+     * Replaces literal values (an email, a token) in the named Studio rules with `${NAME}`, and saves
+     * those values as local variables, so the rules can be shared without the values.
+     */
+    fun replaceInStudioRules(studioNames: Collection<String>, replacements: Map<String, String>) {
+        if (replacements.isEmpty()) return
+        // Variables first, so the rules are re-sent with the values already in place.
+        data.localVariables.putAll(replacements.entries.associate { (literal, name) -> name to literal })
+        for (rule in studioRules().filter { it.name in studioNames }) {
+            RuleMapper.copyInto(rule, SensitiveData.replace(RuleMapper.toShared(rule), replacements))
+        }
+        applyVariablesToStudio()
+        NetworkInspectorBridge.findLiveTable(project)?.view?.table?.repaint()
     }
 
     // ---- file helpers ---------------------------------------------------------------------------
@@ -691,6 +875,7 @@ class SharedRulesService(private val project: Project) :
         for (table in NetworkInspectorBridge.rulesTablesOnScreen(project)) {
             runCatching { inject(table) }.onFailure { LOG.debug("Toolbar injection skipped", it) }
             runCatching { RulesTableGroups.ensure(table, this) }.onFailure { LOG.debug("Team groups skipped", it) }
+            runCatching { VariablesPanel.ensureTab(project, table) }.onFailure { LOG.debug("Variables tab skipped", it) }
         }
         for (view in NetworkInspectorBridge.ruleDetailViewsOnScreen(project)) {
             runCatching { RuleTeamBar.ensure(project, view) }.onFailure { LOG.debug("Team bar skipped", it) }

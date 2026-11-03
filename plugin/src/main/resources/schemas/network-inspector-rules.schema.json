@@ -7,7 +7,7 @@
   "properties": {
     "version": { "description": "File format version.", "const": 1 },
     "variables": {
-      "description": "Variables used by rules as ${NAME}. Developers can set personal values with Personal Variable Values….",
+      "description": "Variables used by rules as ${NAME}. A variable with a value is shared (committed). One with \"local\": true is only declared: each developer sets their own value in the Variables tab, and it's never committed.",
       "type": "array",
       "items": {
         "type": "object",
@@ -15,8 +15,12 @@
         "required": ["name"],
         "properties": {
           "name": { "type": "string", "pattern": "^[A-Za-z0-9_]+$", "description": "Referenced as ${NAME}." },
-          "value": { "type": "string" }
-        }
+          "value": { "type": "string", "description": "The shared value. Committed to git: don't put emails, passwords or tokens here." },
+          "local": { "type": "boolean", "description": "true: declared only. Each developer sets their own value; no value is stored in this file." },
+          "description": { "type": "string", "description": "What to put in the variable, shown to teammates, e.g. \"Your QA account email\"." }
+        },
+        "if": { "properties": { "local": { "const": true } }, "required": ["local"] },
+        "then": { "not": { "required": ["value"] } }
       }
     },
     "rules": {
