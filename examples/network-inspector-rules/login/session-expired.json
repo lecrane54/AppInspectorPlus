@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "variables": [
+    { "name": "API_HOST", "value": "api.example.com" }
+  ],
+  "rules": [
+    {
+      "name": "Session expired",
+      "criteria": { "protocol": "HTTPS", "host": "${API_HOST}", "port": "", "path": "/v1/auth/refresh", "query": "", "method": "POST" },
+      "statusCode": { "active": true, "findCode": "", "newCode": "401" },
+      "headers": [],
+      "body": [
+        { "type": "replace", "body": { "error": "session_expired", "message": "Please sign in again" } }
+      ]
+    }
+  ]
+}

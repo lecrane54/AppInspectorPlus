@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "variables": [
+    { "name": "API_HOST", "value": "api.example.com" }
+  ],
+  "rules": [
+    {
+      "name": "Payment declined",
+      "criteria": { "protocol": "HTTPS", "host": "${API_HOST}", "port": "", "path": "/v1/payments", "query": "", "method": "POST" },
+      "statusCode": { "active": true, "findCode": "", "newCode": "402" },
+      "headers": [
+        { "type": "add", "name": "X-Debug-Mock", "value": "payment-declined" }
+      ],
+      "body": [
+        { "type": "replace", "body": { "error": "card_declined", "message": "Your card was declined" } }
+      ]
+    }
+  ]
+}
