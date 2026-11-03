@@ -116,6 +116,24 @@ git tag v0.3.0
 git push origin v0.3.0
 ```
 
+### Verifying a download
+
+Each release includes `SHA256SUMS.txt`. Check the zip before installing it:
+
+```bash
+shasum -a 256 -c SHA256SUMS.txt
+```
+
+Once the repo is public, releases also carry a signed **build attestation**. It proves the zip was
+built by this repo's workflow from this repo's code, and not uploaded by hand:
+
+```bash
+gh attestation verify network-rules-sync-<ver>.zip -R lecrane54/AppInspectorPlus
+```
+
+Workflow actions are pinned to commit SHAs. Dependabot opens PRs for updates, and the Gradle
+download and wrapper jar are checked against Gradle's official checksums.
+
 You can also run the workflow by hand from the **Actions** tab. That gives you the zip as a build
 artifact without creating a release. CI downloads the Android Studio version named by
 `androidStudioVersion` in `gradle.properties`, so bump it when you move to a new Studio.
