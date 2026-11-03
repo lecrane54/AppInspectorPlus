@@ -155,3 +155,7 @@ To push updates to the team automatically, host the zip in a
 **Corporate TLS proxy:** if Gradle fails with `PKIX path building failed`, import your proxy's
 CA into a truststore and pass `-Djavax.net.ssl.trustStore=…` in both `JAVA_OPTS` and
 `org.gradle.jvmargs`.
+
+## License
+
+[MIT](LICENSE)
