@@ -9,6 +9,7 @@
           <li><b>Export</b> writes the rules you choose to their team files.</li>
           <li><b>Import</b> copies rules files from anywhere on disk into a team folder.</li>
           <li><b>Refresh</b> loads the team folders into the Rules tab (as <code>[team] name</code>) and sends the rules to the connected app straight away.</li>
+          <li><b>Create Team…</b> makes a new team folder with a starter <code>rules.json</code>.</li>
           <li><b>Teams…</b> lets each developer hide teams they don't need.</li>
           <li>The buttons appear in the Rules tab toolbar and under <i>Tools → Network Inspector Shared Rules</i>.</li>
         </ul>
@@ -33,6 +34,9 @@
         <action id="NetworkRulesSync.Import" class="io.github.networkrules.ImportSharedRulesAction"
                 text="Import Rules from File…" description="Copy rules files from disk into a shared team folder"
                 icon="AllIcons.ToolbarDecorator.Import"/>
+        <action id="NetworkRulesSync.CreateTeam" class="io.github.networkrules.CreateTeamAction"
+                text="Create Team…" description="Create a new shared team folder"
+                icon="AllIcons.Actions.NewFolder"/>
         <action id="NetworkRulesSync.Teams" class="io.github.networkrules.ChooseTeamsAction"
                 text="Choose Teams…" description="Choose which team folders to load shared rules from"
                 icon="AllIcons.General.Filter"/>
@@ -44,6 +48,7 @@
             <reference ref="NetworkRulesSync.Refresh"/>
             <reference ref="NetworkRulesSync.Export"/>
             <reference ref="NetworkRulesSync.Import"/>
+            <reference ref="NetworkRulesSync.CreateTeam"/>
             <reference ref="NetworkRulesSync.Teams"/>
             <reference ref="NetworkRulesSync.Open"/>
         </group>
@@ -52,6 +57,7 @@
             <reference ref="NetworkRulesSync.Refresh"/>
             <reference ref="NetworkRulesSync.Export"/>
             <reference ref="NetworkRulesSync.Import"/>
+            <reference ref="NetworkRulesSync.CreateTeam"/>
             <reference ref="NetworkRulesSync.Teams"/>
             <reference ref="NetworkRulesSync.Open"/>
             <add-to-group group-id="ToolsMenu" anchor="last"/>

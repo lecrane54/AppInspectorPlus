@@ -1,6 +1,8 @@
 package io.github.networkrules
 
 import com.intellij.ide.actions.RevealFileAction
+import com.intellij.ide.projectView.ProjectView
+import com.intellij.ide.projectView.impl.ProjectViewPane
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.fileChooser.FileChooser
@@ -9,10 +11,14 @@ import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.DialogWrapper
+import com.intellij.openapi.ui.InputValidatorEx
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.VfsUtil
+import com.intellij.openapi.wm.ToolWindowId
+import com.intellij.openapi.wm.ToolWindowManager
+import com.intellij.psi.PsiManager
 import com.intellij.ui.CheckBoxList
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
@@ -142,12 +148,49 @@ private class ImportDialog(
     }.apply { preferredSize = JBUI.size(520, 0) }
 
     override fun doValidate(): ValidationInfo? =
-        if (!VALID_TEAM.matches(team())) ValidationInfo("Use letters, digits, spaces, '_', '-' or '.'", teamCombo) else null
+        if (!SharedRulesService.VALID_TEAM.matches(team())) ValidationInfo("Use letters, digits, spaces, '_', '-' or '.'", teamCombo) else null
 
     fun team(): String = (teamCombo.editor.item as? String)?.trim()?.trim('/').orEmpty()
+}
 
-    companion object {
-        private val VALID_TEAM = Regex("""^[A-Za-z0-9_-][A-Za-z0-9 _.-]*$""")
+/** Create an empty team folder (with a starter rules.json) without having to export a rule first. */
+class CreateTeamAction : ProjectAction() {
+    override fun actionPerformed(e: AnActionEvent) {
+        val project = e.project ?: return
+        val service = SharedRulesService.getInstance(project)
+        val existing = service.allTeams().toSet()
+        val team = Messages.showInputDialog(
+            project,
+            "Team folder name (created under ${SharedRulesService.ROOT_DIR}/):",
+            "Create Team",
+            null,
+            "",
+            object : InputValidatorEx {
+                override fun getErrorText(inputString: String): String? {
+                    val name = inputString.trim()
+                    return when {
+                        name.isEmpty() -> null
+                        !SharedRulesService.VALID_TEAM.matches(name) -> "Use letters, digits, spaces, '_', '-' or '.'"
+                        name in existing -> "Team \"$name\" already exists"
+                        else -> null
+                    }
+                }
+                override fun checkInput(inputString: String) = inputString.isNotBlank() && getErrorText(inputString) == null
+                override fun canClose(inputString: String) = checkInput(inputString)
+            },
+        )?.trim() ?: return
+
+        val relPath = try {
+            service.createTeam(team)
+        } catch (ex: IllegalStateException) {
+            Messages.showErrorDialog(project, ex.message, "Can't Create Team")
+            return
+        }
+        Messages.showInfoMessage(
+            project,
+            "Created ${SharedRulesService.ROOT_DIR}/$relPath.\n\nExport rules to \"$relPath\" to share them with this team.",
+            "Team Created",
+        )
     }
 }
 
@@ -160,7 +203,7 @@ class ChooseTeamsAction : ProjectAction() {
         if (teams.isEmpty()) {
             Messages.showInfoMessage(
                 project,
-                "No team folders yet. Export a rule and enter a destination like login/session-expired.json to create one.",
+                "No team folders yet. Use Create Team… to make one.",
                 "No Teams",
             )
             return
@@ -175,12 +218,26 @@ class OpenSharedRulesFolderAction : ProjectAction() {
         val project = e.project ?: return
         val dir = SharedRulesService.getInstance(project).rootDir()
         if (dir == null) {
-            Messages.showInfoMessage(project, "${SharedRulesService.ROOT_DIR}/ doesn't exist yet. Use Export to create it.", "No Shared Rules Folder")
+            Messages.showInfoMessage(project, "${SharedRulesService.ROOT_DIR}/ doesn't exist yet. Use Create Team… to create it.", "No Shared Rules Folder")
             return
         }
-        // Select it in the Project view if possible, otherwise reveal it in Finder.
-        val pv = com.intellij.ide.projectView.ProjectView.getInstance(project)
-        if (pv.currentProjectViewPane != null) pv.select(null, dir, true) else RevealFileAction.openDirectory(VfsUtil.virtualToIoFile(dir))
+        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(ToolWindowId.PROJECT_VIEW)
+        if (toolWindow == null) {
+            RevealFileAction.openDirectory(VfsUtil.virtualToIoFile(dir))
+            return
+        }
+        // Android Studio's default "Android" view only lists modules, so the root-level rules folder
+        // isn't in it and select() silently does nothing. Switch to a file-based view first.
+        val pv = ProjectView.getInstance(project)
+        toolWindow.activate {
+            val selectDir = { pv.select(PsiManager.getInstance(project).findDirectory(dir), dir, true) }
+            if (pv.currentViewId in FILE_VIEW_IDS) selectDir()
+            else pv.changeViewCB(ProjectViewPane.ID, null).doWhenProcessed(selectDir)
+        }
+    }
+
+    private companion object {
+        val FILE_VIEW_IDS = setOf(ProjectViewPane.ID, "ProjectFilesPane")
     }
 }
 

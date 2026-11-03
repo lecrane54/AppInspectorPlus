@@ -154,7 +154,7 @@ class SharedRulesService(private val project: Project) :
             if (notifyResult) {
                 notification(
                     "No shared rules folder",
-                    "Use Export to create $ROOT_DIR/&lt;team&gt;/&lt;file&gt;.json at the project root.",
+                    "Use Create Team… (or Export) to create $ROOT_DIR/&lt;team&gt;/ at the project root.",
                     NotificationType.WARNING,
                 ).notify(project)
             }
@@ -353,6 +353,18 @@ class SharedRulesService(private val project: Project) :
     }
 
     /** The current contents of a team file, or null if it doesn't exist. Throws if it exists but can't be read, so it's never overwritten. */
+    /**
+     * Creates a team folder with an empty starter rules.json (git doesn't track empty folders,
+     * and the file gives Export a ready destination). Returns the relative path of the new file.
+     */
+    fun createTeam(team: String): String {
+        check(team !in allTeams()) { "Team \"$team\" already exists." }
+        val relPath = "$team/$STARTER_FILE"
+        writeFile(relPath, RuleMapper.gson.toJson(SharedRulesFile()) + "\n", "Create Network Rules Team")
+        refresh(notifyResult = false)
+        return relPath
+    }
+
     private fun existingContent(relPath: String): SharedRulesFile? {
         val file = rootDir()?.findFileByRelativePath(relPath) ?: return null
         return try {
@@ -438,6 +450,8 @@ class SharedRulesService(private val project: Project) :
 
     companion object {
         const val ROOT_DIR = "network-inspector-rules"
+        const val STARTER_FILE = "rules.json"
+        val VALID_TEAM = Regex("""^[A-Za-z0-9_-][A-Za-z0-9 _.-]*$""")
         private const val INJECTED_KEY = "io.github.networkrules.injected"
         private val VAR_REF = Regex("""\$\{([A-Za-z0-9_]+)}""")
         private val PREFIX = Regex("""^\[([^\]]+)] (.*)$""")
