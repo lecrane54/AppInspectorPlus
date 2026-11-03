@@ -1,0 +1,54 @@
+<idea-plugin>
+    <id>io.github.networkrules</id>
+    <name>Network Inspector Shared Rules</name>
+    <vendor>Mobile Team</vendor>
+    <description><![CDATA[
+        Share Android Studio <b>Network Inspector → Rules</b> with your team through git.
+        <ul>
+          <li>Rules live in team folders: <code>network-inspector-rules/&lt;team&gt;/*.json</code> (e.g. <code>login/</code>, <code>checkout/</code>), as readable JSON with JSON bodies stored as real JSON.</li>
+          <li><b>Export</b> writes the rules you choose to their team files.</li>
+          <li><b>Refresh</b> loads the team folders into the Rules tab (as <code>[team] name</code>) and sends the rules to the connected app straight away.</li>
+          <li><b>Teams…</b> lets each developer hide teams they don't need.</li>
+          <li>The buttons appear in the Rules tab toolbar and under <i>Tools → Network Inspector Shared Rules</i>.</li>
+        </ul>
+        Each developer chooses which rules are enabled; that choice is never committed.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>org.jetbrains.android</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <postStartupActivity implementation="io.github.networkrules.SharedRulesStartup"/>
+        <notificationGroup id="Network Rules Sync" displayType="BALLOON"/>
+    </extensions>
+
+    <actions>
+        <action id="NetworkRulesSync.Refresh" class="io.github.networkrules.RefreshSharedRulesAction"
+                text="Refresh Shared Rules" description="Reload the shared team folders into Network Inspector"
+                icon="AllIcons.Actions.Refresh"/>
+        <action id="NetworkRulesSync.Export" class="io.github.networkrules.ExportSharedRulesAction"
+                text="Export Shared Rules…" description="Write Network Inspector rules to the shared team folders"
+                icon="AllIcons.ToolbarDecorator.Export"/>
+        <action id="NetworkRulesSync.Teams" class="io.github.networkrules.ChooseTeamsAction"
+                text="Choose Teams…" description="Choose which team folders to load shared rules from"
+                icon="AllIcons.General.Filter"/>
+        <action id="NetworkRulesSync.Open" class="io.github.networkrules.OpenSharedRulesFolderAction"
+                text="Show Shared Rules Folder" description="Show network-inspector-rules/ in the Project view"
+                icon="AllIcons.Actions.MenuOpen"/>
+
+        <group id="NetworkRulesSync.Toolbar">
+            <reference ref="NetworkRulesSync.Refresh"/>
+            <reference ref="NetworkRulesSync.Export"/>
+            <reference ref="NetworkRulesSync.Teams"/>
+            <reference ref="NetworkRulesSync.Open"/>
+        </group>
+
+        <group id="NetworkRulesSync.ToolsMenu" text="Network Inspector Shared Rules" popup="true">
+            <reference ref="NetworkRulesSync.Refresh"/>
+            <reference ref="NetworkRulesSync.Export"/>
+            <reference ref="NetworkRulesSync.Teams"/>
+            <reference ref="NetworkRulesSync.Open"/>
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </group>
+    </actions>
+</idea-plugin>
