@@ -83,6 +83,13 @@ The dialog is pre-filled, and everything in it can be edited:
 Rules only rewrite the **response**; the real request is still sent to the server. Types the
 plugin can't see into (custom adapters, polymorphic types) get a best guess for you to edit.
 
+## Using the same rules in Appium tests
+
+Network Inspector rules only work while Android Studio is attached to the app. For Appium tests
+on real devices, [`appium-mocks/`](appium-mocks) has a debug-only OkHttp interceptor to copy into
+the app. It reads these same files, and a test turns scenarios on with an adb broadcast, e.g.
+`--es only "checkout/payment-declined.json"`. See its README.
+
 ## How sharing behaves
 
 * Rules are matched **by their Studio name** (`[team] name`). A refresh replaces every Studio rule
