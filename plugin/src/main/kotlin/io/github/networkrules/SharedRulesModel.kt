@@ -163,7 +163,7 @@ object RuleMapper {
     }
 
     /** JSON bodies are stored as real JSON for readable diffs; anything else is stored as a string. */
-    private fun bodyTextToJson(text: String): JsonElement {
+    fun bodyTextToJson(text: String): JsonElement {
         val t = text.trim()
         if (t.startsWith("{") || t.startsWith("[")) {
             runCatching { return JsonParser.parseString(t) }
