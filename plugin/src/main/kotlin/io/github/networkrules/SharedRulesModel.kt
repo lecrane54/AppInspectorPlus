@@ -132,25 +132,44 @@ object RuleMapper {
     fun toShared(v: RuleVariable) = SharedVariable(v.name, v.value)
     fun toRuleVariable(v: SharedVariable) = RuleVariable(v.name.orEmpty(), v.value.orEmpty())
 
-    /** Overwrites [rd]'s criteria, status code, headers and body with [s]'s, keeping its id, name and on/off state. */
-    fun copyInto(rd: RuleData, s: SharedRule) {
+    /**
+     * Overwrites [rd]'s criteria, status code, headers and body with [s]'s, keeping its id, name and
+     * on/off state. Only fields that differ are set: in a live session each set re-sends the rule.
+     * Returns true if anything changed.
+     */
+    fun copyInto(rd: RuleData, s: SharedRule): Boolean {
         val fresh = toRuleData(s.copy(name = rd.name), rd.id, rd.isActive)
-        rd.criteria.apply {
-            protocol = fresh.criteria.protocol
-            host = fresh.criteria.host
-            port = fresh.criteria.port
-            path = fresh.criteria.path
-            query = fresh.criteria.query
-            method = fresh.criteria.method
+        var changed = false
+        fun <T> sync(current: T, wanted: T, set: (T) -> Unit) {
+            if (current != wanted) { set(wanted); changed = true }
         }
-        rd.statusCodeRuleData.apply {
-            findCode = fresh.statusCodeRuleData.findCode
-            newCode = fresh.statusCodeRuleData.newCode
-            isActive = fresh.statusCodeRuleData.isActive
+        val c = rd.criteria
+        val f = fresh.criteria
+        sync(c.protocol, f.protocol) { c.protocol = it }
+        sync(c.host, f.host) { c.host = it }
+        sync(c.port, f.port) { c.port = it }
+        sync(c.path, f.path) { c.path = it }
+        sync(c.query, f.query) { c.query = it }
+        sync(c.method, f.method) { c.method = it }
+        val sc = rd.statusCodeRuleData
+        val fs = fresh.statusCodeRuleData
+        sync(sc.findCode, fs.findCode) { sc.findCode = it }
+        sync(sc.newCode, fs.newCode) { sc.newCode = it }
+        sync(sc.isActive, fs.isActive) { sc.isActive = it }
+        // Table rows have no useful equals, so compare their shared form.
+        if (rd.headerRuleTableModel.items.map(::headerToShared) != fresh.headerRuleTableModel.items.map(::headerToShared)) {
+            rd.headerRuleTableModel.items = fresh.headerRuleTableModel.items
+            changed = true
         }
-        rd.headerRuleTableModel.items = fresh.headerRuleTableModel.items
-        rd.bodyRuleTableModel.items = fresh.bodyRuleTableModel.items
+        if (rd.bodyRuleTableModel.items.map(::bodyToShared) != fresh.bodyRuleTableModel.items.map(::bodyToShared)) {
+            rd.bodyRuleTableModel.items = fresh.bodyRuleTableModel.items
+            changed = true
+        }
+        return changed
     }
+
+    /** [s] as Studio would hold it, so a file's rule and a Studio rule can be compared field by field. */
+    fun normalized(s: SharedRule): SharedRule = toShared(toRuleData(s, 0, false))
 
     private fun headerToShared(t: TransformationRuleData): SharedHeaderRule? = when (t) {
         is HeaderAddedRuleData -> SharedHeaderRule(type = "add", name = t.name, value = t.value)

@@ -123,21 +123,39 @@ class SharedRulesService(private val project: Project) :
         val root = rootDir() ?: return emptyList()
         return teams.mapNotNull { root.findChild(it) }.flatMap { dir ->
             dir.children.filter { !it.isDirectory && it.extension.equals("json", true) }.sortedBy { it.name }
-                .map { f ->
-                    val ref = RulesFileRef(dir.name, f)
-                    val text = try {
-                        FileDocumentManager.getInstance().getCachedDocument(f)?.text ?: VfsUtilCore.loadText(f)
-                    } catch (e: Exception) {
-                        return@map LoadedRulesFile(ref, null, e.message ?: e.javaClass.simpleName, "")
-                    }
-                    try {
-                        LoadedRulesFile(ref, RuleMapper.gson.fromJson(text, SharedRulesFile::class.java) ?: SharedRulesFile(), null, RulesLogic.hash(text))
-                    } catch (e: Exception) {
-                        LOG.warn("Failed to parse ${f.path}", e)
-                        LoadedRulesFile(ref, null, e.message ?: e.javaClass.simpleName, RulesLogic.hash(text))
-                    }
-                }
+                .map { f -> parsed(RulesFileRef(dir.name, f)) }
         }
+    }
+
+    private class CachedFile(val stamp: String, val loaded: LoadedRulesFile)
+
+    /** Parsed team files by path, reused until the file (or its unsaved editor document) changes. */
+    private val parseCache = java.util.concurrent.ConcurrentHashMap<String, CachedFile>()
+
+    /**
+     * Reads and parses a team file, or returns the cached result if it hasn't changed. Callers treat
+     * the content as read-only: every change builds new objects (see VariableLogic, RulesLogic).
+     */
+    private fun parsed(ref: RulesFileRef): LoadedRulesFile {
+        val f = ref.file
+        val doc = FileDocumentManager.getInstance().getCachedDocument(f)
+        val stamp = "${f.modificationStamp}:${doc?.modificationStamp ?: -1}"
+        parseCache[f.path]?.takeIf { it.stamp == stamp }?.let { return LoadedRulesFile(ref, it.loaded.content, it.loaded.error, it.loaded.hash) }
+        val loaded = run {
+            val text = try {
+                doc?.text ?: VfsUtilCore.loadText(f)
+            } catch (e: Exception) {
+                return@run LoadedRulesFile(ref, null, e.message ?: e.javaClass.simpleName, "")
+            }
+            try {
+                LoadedRulesFile(ref, RuleMapper.gson.fromJson(text, SharedRulesFile::class.java) ?: SharedRulesFile(), null, RulesLogic.hash(text))
+            } catch (e: Exception) {
+                LOG.warn("Failed to parse ${f.path}", e)
+                LoadedRulesFile(ref, null, e.message ?: e.javaClass.simpleName, RulesLogic.hash(text))
+            }
+        }
+        parseCache[f.path] = CachedFile(stamp, loaded)
+        return loaded
     }
 
     /** Every existing rules file, as team/file.json, for Export's destination picker. */
@@ -190,8 +208,9 @@ class SharedRulesService(private val project: Project) :
         val files = loadFiles()
         files.filter { it.error != null }.takeIf { it.isNotEmpty() }?.let(::notifyUnreadable)
 
-        // Variables first: rules are resolved against them when they're sent to the device.
-        applyVariablesToStudio(resend = false)
+        // Variables first: rules are resolved against them when they're sent to the device. If a
+        // value changed, every rule is re-sent below; otherwise only rules that changed are.
+        val variablesChanged = applyVariablesToStudio(resend = false)
 
         // Desired Studio rules: "[team] name" → (rule, origin). A duplicate name in a team keeps the first.
         val desired = linkedMapOf<String, Pair<SharedRule, String>>()
@@ -207,24 +226,34 @@ class SharedRulesService(private val project: Project) :
         val current: List<RuleData> = live?.rules ?: persisted
         val managed = data.importedNames + desired.keys
 
-        // Your on/off choice survives a refresh. Brand-new shared rules start off, so pulling a
-        // teammate's rules never starts rewriting your traffic unexpectedly.
-        val wasActive = mutableMapOf<String, Boolean>()
+        // Only what changed is touched: a rule whose file version changed is updated in place (Studio
+        // re-sends just that rule), a rule gone from its file is removed, a new one is added. Unchanged
+        // rules keep their place, selection and on/off state, and aren't re-sent to the device.
+        // Brand-new shared rules start off, so pulling a teammate's rules never starts rewriting
+        // your traffic unexpectedly.
+        val existingNames = mutableSetOf<String>()
+        var updated = 0
         RulesTableGroups.bulkUpdate = true
         try {
             for (rule in current.filter { it.name in managed }.toList()) {
-                wasActive[rule.name] = rule.isActive
-                if (live != null) live.remove(rule) else persisted.remove(rule)
+                val wanted = desired[rule.name]
+                if (wanted == null || !existingNames.add(rule.name)) {
+                    // Gone from the files, or a duplicate of a name already kept.
+                    if (live != null) live.remove(rule) else persisted.remove(rule)
+                    continue
+                }
+                if (RuleMapper.copyInto(rule, wanted.first.copy(name = rule.name))) updated++
             }
             for ((studioName, entry) in desired) {
-                val shared = entry.first.copy(name = studioName)
-                val rule = RuleMapper.toRuleData(shared, RuleData.newId(), wasActive[studioName] ?: false)
+                if (studioName in existingNames) continue
+                val rule = RuleMapper.toRuleData(entry.first.copy(name = studioName), RuleData.newId(), false)
                 if (live != null) live.add(rule) else persisted.add(rule)
             }
+            if (variablesChanged) live?.resendAll()
         } finally {
             RulesTableGroups.bulkUpdate = false
         }
-        live?.view?.table?.clearSelection()
+        LOG.debug("Refresh: ${desired.size} shared rule(s), $updated updated, ${desired.size - existingNames.size} added")
         data.importedNames = desired.keys.toMutableSet()
         data.origins = desired.mapValuesTo(linkedMapOf()) { it.value.second }
         data.fileHashes = files.associateTo(linkedMapOf()) { it.ref.relPath to it.hash }
@@ -235,7 +264,7 @@ class SharedRulesService(private val project: Project) :
         }
         if (notifyResult) {
             val where = if (live != null) "and sent to the device" else "(applied when Network Inspector next connects)"
-            val newOnes = desired.keys.count { it !in wasActive }
+            val newOnes = desired.keys.count { it !in existingNames }
             val teams = visibleTeams().joinToString().ifEmpty { "none" }
             notification(
                 "Shared network rules refreshed",
@@ -653,15 +682,19 @@ class SharedRulesService(private val project: Project) :
      * Puts every shared and local variable into Studio's variable list. With [resend], the rules in
      * a live session are sent to the device again so they pick up the new values.
      */
-    fun applyVariablesToStudio(resend: Boolean = true, removed: Collection<String> = emptyList()) {
+    fun applyVariablesToStudio(resend: Boolean = true, removed: Collection<String> = emptyList()): Boolean {
         val vars = NetworkInspectorBridge.variables(project)
+        val before = vars.associate { it.name to it.value }
         vars.removeAll { it.name in removed }
         for ((name, value) in VariableLogic.studioValues(sharedVariableDefinitions(), data.localVariables, scenarioVariables())) {
             val existing = vars.firstOrNull { it.name == name }
             if (existing != null) existing.value = value else vars += RuleMapper.toRuleVariable(SharedVariable(name, value))
         }
-        if (resend) NetworkInspectorBridge.findLiveTable(project)?.resendAll()
+        val changed = vars.associate { it.name to it.value } != before
+        // Rules are resolved against the variables when sent, so they only need re-sending if a value changed.
+        if (resend && changed) NetworkInspectorBridge.findLiveTable(project)?.resendAll()
         VariablesPanel.reloadAll(project)
+        return changed
     }
 
     /** Names in the last "variables not set" warning, so it isn't repeated for the same set. */
@@ -916,13 +949,11 @@ class SharedRulesService(private val project: Project) :
     /** The current contents of a team file, or null if it doesn't exist. Throws if it exists but can't be read, so it's never overwritten. */
     private fun existingContent(relPath: String): SharedRulesFile? {
         val file = rootDir()?.findFileByRelativePath(relPath) ?: return null
-        return try {
-            val text = FileDocumentManager.getInstance().getCachedDocument(file)?.text ?: VfsUtilCore.loadText(file)
-            RuleMapper.gson.fromJson(text, SharedRulesFile::class.java) ?: SharedRulesFile()
-        } catch (e: Exception) {
-            throw IllegalStateException("$ROOT_DIR/$relPath exists but couldn't be read (${e.message ?: e.javaClass.simpleName}). Fix or remove it first.")
-        }
+        val loaded = parsed(RulesFileRef(relPath.substringBefore('/'), file))
+        loaded.error?.let { throw IllegalStateException("$ROOT_DIR/$relPath exists but couldn't be read ($it). Fix or remove it first.") }
+        return loaded.content
     }
+
 
     private fun writeFile(relPath: String, text: String, commandName: String = "Export Network Rules") {
         val root = rootPath ?: error("Project has no base directory")
