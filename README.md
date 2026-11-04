@@ -37,6 +37,7 @@ under **Tools → Network Inspector Shared Rules**.
 
 | Button | What it does |
 |---|---|
+| ⚡ **Scenario ▾** | Shows the scenario that's on and switches between scenarios (see [Scenarios](#scenarios)). |
 | ⟳ **Refresh Shared Rules** | Loads every visible team's files into the Rules tab. If an app is connected, the rules go to the device **immediately**, with no restart. |
 | ⇪ **Export Shared Rules…** | Shows a checklist of your Rules-tab rules. Shared rules go back to their own file. Local rules you check go to the file you pick under "Save new rules to" (`team/file.json`). |
 | ⇩ **Import Rules from File…** | Picks one or more rules files from anywhere on disk (same JSON format) and copies them into a team folder you choose, then refreshes. If a file with that name already exists in the team, the rules are merged and you're asked before same-named rules are replaced. A `[team]` prefix left in imported rule names is removed. |
@@ -44,6 +45,7 @@ under **Tools → Network Inspector Shared Rules**.
 | 📁 **Create Team…** | Creates a new team folder with an empty starter `rules.json`, so the team is committed to git and shows up as an Export destination. |
 | ⧩ **Choose Teams…** | Chooses which team folders *you* load. This choice is local and not committed. |
 | 📂 **Show Shared Rules Folder** | Shows `network-inspector-rules/` in the Project view. |
+| ⋯ **Create Network Rule from Selected Request…** | Same as right-clicking a request in the Connection View (see [Create a rule from captured traffic](#create-a-rule-from-captured-traffic)). |
 | ⋯ **Rename Team…** | Renames a team folder. Its rules become `[new name] …` in Studio and keep your on/off choices. |
 | ⋯ **Delete Team…** | Deletes a team folder and its rules, after a confirmation. Git or Local History can undo it until you commit. |
 | ⋯ **Variables…** | Opens the **Variables** tab (see below), or the same table in a dialog when no app is connected. |
@@ -116,6 +118,62 @@ Studio's rule details shows its **Team** and **File**:
   back to that file, without going through Export. Picking another team or file moves it there.
 * If that team already has a rule with the same name in another file, you're asked to rename it
   first; if the chosen file already has one, you're asked before it's replaced.
+
+## Create a rule from captured traffic
+
+In Network Inspector's **Connection View**, right-click a request and choose **Create Network Rule
+from Response…** (next to Studio's Copy URL and Copy as cURL). It's also under ⋯ and Tools, for the
+selected request. The rule dialog opens pre-filled from the real request:
+
+* **Method, protocol, host and port** as captured.
+* **Path** with IDs (numbers, UUIDs, long hex strings) as `*`, so `/users/123/orders/9f…` becomes
+  `/users/*/orders/*` and the rule matches any user. Edit it to match one exact URL. The query is
+  left empty, which matches any query.
+* **Status code** and the **response body** as captured (decoded, JSON pretty-printed). Edit it into
+  the case you want to test: an error, an empty list, a missing field. Binary bodies aren't copied.
+* **Team / File** as in the other dialogs, and the email/token check runs before anything is written
+  to a team file, so a captured response with your account details doesn't get committed.
+
+Studio builds that menu itself, so the plugin wraps the table's right-click to add its item after
+Studio's. If a Studio update changes that, the ⋯ and Tools entries still work.
+
+## Scenarios
+
+A **scenario** is a named set of shared rules turned on together, such as "card declined at checkout
+with a valid session". Scenarios live in `network-inspector-rules/scenarios.json`, so they're shared
+through git, and the same scenario works in Studio and in [Appium tests](appium-mocks):
+
+```json
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "name": "checkout-declined",
+      "description": "Card declined, session still valid",
+      "enable": ["checkout/payment-declined.json", "[login] Session OK"],
+      "variables": { "API_HOST": "staging.example.com" }
+    }
+  ]
+}
+```
+
+* `enable` lists rules the same way the Appium broadcast does: a `team`, a `team/file.json`, a single
+  `[team] rule name`, or `*`.
+* `variables` (optional) are values used while the scenario is on. They're committed, so no personal
+  data. Your own value for a variable still wins.
+
+In the Rules tab, the **Scenario ▾** dropdown:
+
+* **Picking a scenario** turns on exactly its shared rules and turns the other shared rules off. Rules you
+  made yourself aren't touched. Rules a scenario names that don't exist (renamed, deleted, or in a
+  hidden team) are listed in a warning.
+* **Turn Off Scenario** turns its rules off and drops its variable values.
+* **Save Enabled Rules as Scenario…** saves the shared rules that are on right now, using whole teams or
+  files where it can, as a new scenario or over an existing one.
+* **Delete Scenario…** and **Edit scenarios.json** (the editor checks the file against a schema).
+* **Copy adb Command for Appium** copies `adb shell am broadcast … --es scenario "<name>"`.
+
+The scenario that's on is remembered per developer and isn't committed.
 
 ## Create a rule from a Retrofit endpoint
 
@@ -236,8 +294,20 @@ toolbar injection ever stops matching Studio's layout, the Tools menu actions st
 
 ## Releases
 
-Teammates don't need to build anything. They download the zip from the repo's
-[**Releases**](../../releases) page and install it (see below).
+Teammates don't need to build anything.
+
+**Automatic updates (recommended).** Each release publishes an `updatePlugins.xml`, so Studio can
+offer new versions itself. Once per machine: Settings → Plugins → ⚙ → **Manage Plugin
+Repositories…** → **+**, and add
+
+```
+https://github.com/lecrane54/AppInspectorPlus/releases/latest/download/updatePlugins.xml
+```
+
+Then install the plugin from the **Marketplace** tab (search "Network Inspector Shared Rules"), or
+install the zip once by hand. From then on Studio shows "plugin update available" for each release.
+
+**By hand.** Download the zip from the repo's [**Releases**](../../releases) page and install it (see below).
 
 To publish a new version, push a tag. The [Build plugin](.github/workflows/release.yml) workflow
 builds the zip, versions it from the tag, and attaches it to a GitHub Release:
@@ -281,8 +351,7 @@ Install the zip through Settings → Plugins → ⚙ → **Install Plugin from D
 `androidStudioPath` in `gradle.properties` points to a local Studio install to compile against.
 If that path doesn't exist, Gradle downloads `androidStudioVersion` instead.
 
-To push updates to the team automatically, host the zip in a
-[custom plugin repository](https://plugins.jetbrains.com/docs/intellij/custom-plugin-repository.html).
+To get updates automatically, add the plugin repository URL from [Releases](#releases).
 
 **Corporate TLS proxy:** if Gradle fails with `PKIX path building failed`, import your proxy's
 CA into a truststore and pass `-Djavax.net.ssl.trustStore=…` in both `JAVA_OPTS` and

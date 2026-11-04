@@ -93,6 +93,7 @@ am broadcast -a com.example.mockrules.CONTROL -p <your.package> -f 0x20 <extras>
 
 | Extra | Does |
 |---|---|
+| `--es scenario "checkout-declined"` | Applies a scenario from `scenarios.json`: exactly its rules, plus its variable values. Other extras in the same broadcast apply on top, e.g. `--es var` for a local value |
 | `--es only "checkout/payment-declined.json"` | Enables exactly these and turns everything else off |
 | `--es enable "login,[checkout] Payment declined"` | Enables more. Accepts `team/file.json`, `team`, `[team] rule name`, or `*` |
 | `--es disable "login"` | Turns those off |
@@ -154,3 +155,10 @@ token) have no value in the files, so the interceptor can't know it. Pass it wit
 
 In Android Studio, **Variables → Copy adb Arguments for Appium** copies your own values in this form.
 In CI, build the argument from secrets (e.g. `"EMAIL=$QA_EMAIL"`) rather than committing it in test code.
+
+## Scenarios
+
+`network-inspector-rules/scenarios.json` (made with the **Scenario ▾** dropdown in Studio's Rules tab)
+is bundled with the other files, and can be pushed next to them like the rules files. A test applies one
+by name: `--es scenario "checkout-declined"`. The broadcast's summary starts with `scenario=…`, or
+`scenario=<name> (NOT FOUND)` if there's no such scenario.

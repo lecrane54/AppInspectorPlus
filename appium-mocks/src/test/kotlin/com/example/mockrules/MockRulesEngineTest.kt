@@ -180,6 +180,17 @@ class MockRulesEngineTest {
         assertEquals("qa@example.com", engine.variables()["EMAIL"])
     }
 
+    @Test fun `scenarios parse with their rules and variables`() {
+        val json = """{ "version": 1, "scenarios": [
+            { "name": "checkout-declined", "enable": ["checkout/payment-declined.json", "[login] Session OK"],
+              "variables": { "API_HOST": "staging.example.com" } },
+            { "name": "", "enable": ["login"] } ] }"""
+        val s = MockRulesFormat.parseScenarios(json)
+        assertEquals(listOf("checkout-declined"), s.keys.toList())
+        assertEquals(listOf("checkout/payment-declined.json", "[login] Session OK"), s.getValue("checkout-declined").enable)
+        assertEquals(mapOf("API_HOST" to "staging.example.com"), s.getValue("checkout-declined").variables)
+    }
+
     @Test fun `loader runs once, on the first request`() {
         var loads = 0
         engine.loader = { loads++; load("login/profile.json" to profileReplaced); engine.enabled = setOf("login") }

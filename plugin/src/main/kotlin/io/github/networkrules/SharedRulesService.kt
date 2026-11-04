@@ -82,6 +82,9 @@ class SharedRulesService(private val project: Project) :
          */
         var localVariables: MutableMap<String, String> = linkedMapOf()
 
+        /** The scenario this developer turned on, if any (scenarios.json). */
+        var activeScenario: String? = null
+
         /** Groups this developer collapsed in the Rules tab ("" is the local rules group). */
         var collapsedTeams: MutableSet<String> = linkedSetOf()
     }
@@ -642,6 +645,7 @@ class SharedRulesService(private val project: Project) :
         val studio = NetworkInspectorBridge.variables(project).associate { it.name to it.value }
         return VariableLogic.rows(
             VariableLogic.sharedDefinitions(contents), data.localVariables, studio, used, VariableLogic.declarations(contents),
+            scenarioVariables(),
         )
     }
 
@@ -652,7 +656,7 @@ class SharedRulesService(private val project: Project) :
     fun applyVariablesToStudio(resend: Boolean = true, removed: Collection<String> = emptyList()) {
         val vars = NetworkInspectorBridge.variables(project)
         vars.removeAll { it.name in removed }
-        for ((name, value) in VariableLogic.studioValues(sharedVariableDefinitions(), data.localVariables)) {
+        for ((name, value) in VariableLogic.studioValues(sharedVariableDefinitions(), data.localVariables, scenarioVariables())) {
             val existing = vars.firstOrNull { it.name == name }
             if (existing != null) existing.value = value else vars += RuleMapper.toRuleVariable(SharedVariable(name, value))
         }
@@ -813,6 +817,100 @@ class SharedRulesService(private val project: Project) :
         NetworkInspectorBridge.findLiveTable(project)?.view?.table?.repaint()
     }
 
+    // ---- scenarios ------------------------------------------------------------------------------
+
+    val activeScenario: String? get() = data.activeScenario
+
+    fun scenariosFile(): VirtualFile? = rootDir()?.findChild(ScenarioLogic.FILE)
+
+    /** scenarios.json, or null when there isn't one. Throws IllegalStateException when it can't be read. */
+    fun loadScenarios(): ScenariosFile? {
+        val file = scenariosFile() ?: return null
+        return try {
+            val text = FileDocumentManager.getInstance().getCachedDocument(file)?.text ?: VfsUtilCore.loadText(file)
+            RuleMapper.gson.fromJson(text, ScenariosFile::class.java) ?: ScenariosFile()
+        } catch (e: Exception) {
+            throw IllegalStateException("$ROOT_DIR/${ScenarioLogic.FILE} couldn't be read (${e.message ?: e.javaClass.simpleName}).")
+        }
+    }
+
+    fun scenarios(): List<SharedScenario> = runCatching { loadScenarios() }.getOrNull()?.scenarios.orEmpty().filter { !it.name.isNullOrBlank() }
+
+    /** Values the active scenario sets; they apply between the shared value and this developer's own. */
+    fun scenarioVariables(): Map<String, String> =
+        data.activeScenario?.let { name -> scenarios().firstOrNull { it.name == name }?.variables }.orEmpty()
+
+    /** Studio's shared rules, as scenario selectors see them. */
+    fun sharedRuleRefs(): List<ScenarioLogic.RuleRef> = studioRules().mapNotNull { rule ->
+        val origin = originOf(rule.name) ?: return@mapNotNull null
+        ScenarioLogic.RuleRef(rule.name, origin.substringBefore('/'), origin)
+    }
+
+    /**
+     * Turns on exactly the shared rules [name] selects and turns the other shared rules off (your own
+     * rules aren't touched), and applies its variable values. In a live session Studio sends the changes.
+     */
+    fun applyScenario(name: String) {
+        val scenario = loadScenarios()?.let { ScenarioLogic.find(it, name) } ?: throw IllegalStateException("Scenario \"$name\" no longer exists.")
+        val (on, notFound) = ScenarioLogic.resolve(scenario.enable.orEmpty(), sharedRuleRefs())
+        val previousVars = scenarioVariables().keys
+        for (rule in studioRules()) {
+            if (originOf(rule.name) == null) continue
+            val wanted = rule.name in on
+            if (rule.isActive != wanted) rule.isActive = wanted
+        }
+        data.activeScenario = name
+        applyVariablesToStudio(removed = previousVars - scenarioVariables().keys - sharedVariables().keys - data.localVariables.keys)
+        NetworkInspectorBridge.findLiveTable(project)?.view?.table?.repaint()
+        notification(
+            "Scenario \"${esc(name)}\" is on",
+            "${on.size} shared rule(s) on, the other shared rules off." +
+                (if (notFound.isEmpty()) "" else "<br>Not found (renamed, deleted, or in a hidden team?): ${esc(notFound.joinToString())}"),
+            if (notFound.isEmpty()) NotificationType.INFORMATION else NotificationType.WARNING,
+        ).notify(project)
+    }
+
+    /** Turns the active scenario's rules off and drops its variable values. */
+    fun turnOffScenario() {
+        val name = data.activeScenario ?: return
+        val scenario = scenarios().firstOrNull { it.name == name }
+        val vars = scenarioVariables().keys
+        if (scenario != null) {
+            val (on, _) = ScenarioLogic.resolve(scenario.enable.orEmpty(), sharedRuleRefs())
+            for (rule in studioRules()) if (rule.name in on && rule.isActive) rule.isActive = false
+        }
+        data.activeScenario = null
+        applyVariablesToStudio(removed = vars - sharedVariables().keys - data.localVariables.keys)
+        NetworkInspectorBridge.findLiveTable(project)?.view?.table?.repaint()
+    }
+
+    /** The selectors for the shared rules that are on right now. */
+    fun enabledSelectors(): List<String> {
+        val refs = sharedRuleRefs()
+        val on = studioRules().filter { it.isActive }.map { it.name }.toSet()
+        return ScenarioLogic.compact(on, refs)
+    }
+
+    /** Saves (or replaces) a scenario in scenarios.json and marks it as the active one. */
+    fun saveScenario(scenario: SharedScenario) {
+        val name = scenario.name ?: error("A scenario needs a name")
+        check(ScenarioLogic.VALID_NAME.matches(name)) { "Use letters, digits, spaces, _ - . in scenario names." }
+        val updated = ScenarioLogic.upsert(loadScenarios(), scenario)
+        writeFile(ScenarioLogic.FILE, RuleMapper.gson.toJson(updated) + "\n", "Save Network Rules Scenario")
+        data.activeScenario = name
+        applyVariablesToStudio()
+        notification(
+            "Saved scenario \"${esc(name)}\"",
+            "Saved to $ROOT_DIR/${ScenarioLogic.FILE}. Commit it to share it; in Appium tests use <code>--es scenario \"${esc(name)}\"</code>.",
+            NotificationType.INFORMATION,
+        ).notify(project)
+    }
+
+    fun deleteScenario(name: String) {
+        if (data.activeScenario == name) turnOffScenario()
+        writeFile(ScenarioLogic.FILE, RuleMapper.gson.toJson(ScenarioLogic.remove(loadScenarios(), name)) + "\n", "Delete Network Rules Scenario")
+    }
+
     // ---- file helpers ---------------------------------------------------------------------------
 
     /** The current contents of a team file, or null if it doesn't exist. Throws if it exists but can't be read, so it's never overwritten. */
@@ -829,8 +927,9 @@ class SharedRulesService(private val project: Project) :
     private fun writeFile(relPath: String, text: String, commandName: String = "Export Network Rules") {
         val root = rootPath ?: error("Project has no base directory")
         writeAction(commandName) {
-            val dir = VfsUtil.createDirectoryIfMissing("$root/${relPath.substringBefore('/')}")!!
-            val name = relPath.substringAfter('/')
+            // team/file.json, or a file at the root such as scenarios.json.
+            val dir = VfsUtil.createDirectoryIfMissing(if ('/' in relPath) "$root/${relPath.substringBefore('/')}" else root)!!
+            val name = relPath.substringAfterLast('/')
             val file = dir.findChild(name) ?: dir.createChildData(this, name)
             val fdm = FileDocumentManager.getInstance()
             val doc = fdm.getDocument(file)
@@ -841,7 +940,7 @@ class SharedRulesService(private val project: Project) :
                 VfsUtil.saveText(file, text)
             }
         }
-        data.fileHashes[relPath] = RulesLogic.hash(text)
+        if ('/' in relPath) data.fileHashes[relPath] = RulesLogic.hash(text)
     }
 
     /** An undoable write to the shared folder that doesn't trigger our own "files changed" notification. */
@@ -877,6 +976,7 @@ class SharedRulesService(private val project: Project) :
             runCatching { RulesTableGroups.ensure(table, this) }.onFailure { LOG.debug("Team groups skipped", it) }
             runCatching { VariablesPanel.ensureTab(project, table) }.onFailure { LOG.debug("Variables tab skipped", it) }
         }
+        runCatching { TrafficRules.ensureConnectionsMenu(project) }.onFailure { LOG.debug("Connections menu skipped", it) }
         for (view in NetworkInspectorBridge.ruleDetailViewsOnScreen(project)) {
             runCatching { RuleTeamBar.ensure(project, view) }.onFailure { LOG.debug("Team bar skipped", it) }
         }

@@ -13,6 +13,8 @@
           <li><b>Turn On/Off by File…</b> switches a whole scenario file on or off at once, just for you.</li>
           <li><b>Rename Team…</b> and <b>Delete Team…</b> manage team folders.</li>
           <li>A <b>Variables</b> tab next to Rules lists shared variables (committed in team files), local variables (only on your machine, never committed, optionally declared in a team file) and missing ones, and lets you add, remove, share or make them local.</li>
+          <li><b>Scenarios</b>: named sets of shared rules (and variable values) in <code>scenarios.json</code>, switched from a dropdown in the Rules tab and with <code>--es scenario</code> in Appium tests.</li>
+          <li><b>Create Network Rule from Response…</b>: right-click a request in the Connection View for a rule pre-filled with its real response.</li>
           <li>Emails and tokens typed into rules are caught before they're written to a team file, with an offer to replace them by local variables.</li>
           <li><b>Create Network Rule from Endpoint…</b>: right-click a Retrofit method to make a rule for it, with a sample response built from its return type. Set your base URL under <i>Settings → Tools → Network Inspector Shared Rules</i>.</li>
           <li>Rules files get completion and error highlighting in the editor.</li>
@@ -78,14 +80,25 @@
             <add-to-group group-id="GenerateGroup" anchor="last"/>
         </action>
 
+        <action id="NetworkRulesSync.CreateFromRequest" class="io.github.networkrules.CreateRuleFromSelectedRequestAction"
+                text="Create Network Rule from Selected Request…"
+                description="Create a rule from the request selected in Network Inspector's Connection View, with its real response"
+                icon="AllIcons.Nodes.Plugin"/>
+
         <group id="NetworkRulesSync.More" text="More Shared Rules Actions" popup="true" icon="AllIcons.Actions.More">
+            <reference ref="NetworkRulesSync.CreateFromRequest"/>
+            <separator/>
             <reference ref="NetworkRulesSync.RenameTeam"/>
             <reference ref="NetworkRulesSync.DeleteTeam"/>
             <separator/>
             <reference ref="NetworkRulesSync.Variables"/>
         </group>
 
+        <action id="NetworkRulesSync.Scenario" class="io.github.networkrules.ScenarioComboAction"
+                text="Scenario" description="Turn on a named set of shared rules"/>
+
         <group id="NetworkRulesSync.Toolbar">
+            <reference ref="NetworkRulesSync.Scenario"/>
             <reference ref="NetworkRulesSync.Refresh"/>
             <reference ref="NetworkRulesSync.Export"/>
             <reference ref="NetworkRulesSync.Import"/>
@@ -101,6 +114,7 @@
             <reference ref="NetworkRulesSync.Export"/>
             <reference ref="NetworkRulesSync.Import"/>
             <reference ref="NetworkRulesSync.ToggleByFile"/>
+            <reference ref="NetworkRulesSync.CreateFromRequest"/>
             <separator/>
             <reference ref="NetworkRulesSync.CreateTeam"/>
             <reference ref="NetworkRulesSync.RenameTeam"/>

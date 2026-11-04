@@ -11,7 +11,8 @@ import com.jetbrains.jsonSchema.extension.SchemaType
  * in the editor. Loaded only when the IDE's JSON plugin is present (see network-rules-json.xml).
  */
 class RulesJsonSchemaProviderFactory : JsonSchemaProviderFactory {
-    override fun getProviders(project: Project): List<JsonSchemaFileProvider> = listOf(RulesJsonSchemaProvider(project))
+    override fun getProviders(project: Project): List<JsonSchemaFileProvider> =
+        listOf(RulesJsonSchemaProvider(project), ScenariosJsonSchemaProvider(project))
 }
 
 private class RulesJsonSchemaProvider(private val project: Project) : JsonSchemaFileProvider {
@@ -26,5 +27,16 @@ private class RulesJsonSchemaProvider(private val project: Project) : JsonSchema
     override fun getName() = "Network Inspector shared rules"
     override fun getSchemaFile(): VirtualFile? =
         JsonSchemaProviderFactory.getResourceFile(RulesJsonSchemaProviderFactory::class.java, "/schemas/network-inspector-rules.schema.json")
+    override fun getSchemaType() = SchemaType.embeddedSchema
+}
+
+/** `network-inspector-rules/scenarios.json`. */
+private class ScenariosJsonSchemaProvider(private val project: Project) : JsonSchemaFileProvider {
+    override fun isAvailable(file: VirtualFile): Boolean =
+        project.basePath?.let { file.path == "$it/${SharedRulesService.ROOT_DIR}/${ScenarioLogic.FILE}" } == true
+
+    override fun getName() = "Network Inspector rule scenarios"
+    override fun getSchemaFile(): VirtualFile? =
+        JsonSchemaProviderFactory.getResourceFile(RulesJsonSchemaProviderFactory::class.java, "/schemas/network-inspector-scenarios.schema.json")
     override fun getSchemaType() = SchemaType.embeddedSchema
 }

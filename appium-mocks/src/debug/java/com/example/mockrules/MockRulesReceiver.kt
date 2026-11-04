@@ -17,6 +17,8 @@ import android.content.Intent
  * Extras (all optional; lists are comma-separated):
  *  - `enable` / `disable`: `team/file.json`, `team`, `[team] rule name`, or `*`
  *  - `only`: enable exactly these and disable everything else
+ *  - `scenario` (`--es scenario "checkout-declined"`): apply a scenario from scenarios.json: exactly its
+ *    rules, plus its variable values
  *  - `clear` (`--ez clear true`): turn everything off and drop variable values
  *  - `var` (`--es var "API_HOST=10.0.0.5"`): set a variable; `unvar`: remove one
  *  - `callServer` (`--ez callServer true`): rewrite the real response instead of answering locally
@@ -40,6 +42,7 @@ class MockRulesReceiver : BroadcastReceiver() {
             unsetVariables = list("unvar").orEmpty(),
             alwaysCallServer = if (intent.hasExtra("callServer")) intent.getBooleanExtra("callServer", false) else null,
             reload = intent.getBooleanExtra("reload", false),
+            scenario = intent.getStringExtra("scenario")?.trim()?.takeIf { it.isNotEmpty() },
         )
         if (isOrderedBroadcast) resultData = summary
     }

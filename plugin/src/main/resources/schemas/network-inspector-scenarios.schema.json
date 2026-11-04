@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Network Inspector rule scenarios",
+  "description": "Named sets of shared rules turned on together, in Android Studio (Scenario dropdown) and in the Appium mocks (--es scenario \"name\").",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "enable"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9 _.-]*$",
+            "description": "Unique. Used as --es scenario \"name\" in Appium tests."
+          },
+          "description": {
+            "type": "string"
+          },
+          "enable": {
+            "type": "array",
+            "description": "Rules to turn on; every other shared rule is turned off. Each item is a team, team/file.json, [team] rule name, or *.",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "variables": {
+            "type": "object",
+            "description": "Variable values while the scenario is on. Committed to git: never emails, passwords or tokens. A developer's own value still wins.",
+            "propertyNames": {
+              "pattern": "^[A-Za-z0-9_]+$"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

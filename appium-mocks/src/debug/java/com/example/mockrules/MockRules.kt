@@ -22,6 +22,8 @@ object MockRules {
     private const val KEY_ENABLED = "enabled"
     private const val KEY_VARS = "vars"
     private const val KEY_CALL_SERVER = "always_call_server"
+    private const val KEY_SCENARIO = "scenario"
+    private const val SCENARIOS = "scenarios.json"
 
     val engine = MockRulesEngine()
 
@@ -46,17 +48,26 @@ object MockRules {
         unsetVariables: Collection<String> = emptyList(),
         alwaysCallServer: Boolean? = null,
         reload: Boolean = false,
+        scenario: String? = null,
     ): String {
         init(context)
         // Load files and saved state first, so this change applies on top of earlier test steps.
         engine.ensureLoaded()
 
+        // A scenario works like `only` with its rules, plus its variable values; explicit extras in the
+        // same broadcast still apply on top (so --es var can supply a value the scenario leaves out).
+        val s = scenario?.let { engine.scenarios[it] }
+        if (clear) engine.activeScenario = null
+        if (scenario != null) engine.activeScenario = if (s != null) scenario else "$scenario (NOT FOUND)"
+
         var on = if (clear) emptySet() else engine.enabled
-        if (only != null) on = only.toSet()
+        if (s != null) on = s.enable.toSet()
+        if (only != null) on = if (s != null) on + only else only.toSet()
         on = on + enable - disable.toSet()
         engine.enabled = on
 
         var vars = if (clear) emptyMap() else engine.variableOverrides
+        if (s != null) vars = vars + s.variables
         vars = vars + setVariables - unsetVariables.toSet()
         engine.variableOverrides = vars
 
@@ -67,6 +78,7 @@ object MockRules {
             .putStringSet(KEY_ENABLED, on)
             .putStringSet(KEY_VARS, vars.map { (k, v) -> "$k=$v" }.toSet())
             .putBoolean(KEY_CALL_SERVER, engine.alwaysCallServer)
+            .putString(KEY_SCENARIO, engine.activeScenario)
             .apply()
 
         if (reload) {
@@ -83,6 +95,7 @@ object MockRules {
             sel != "*" && engine.allRules.none { it.filePath == sel || it.team == sel || it.id == sel }
         }
         return buildString {
+            engine.activeScenario?.let { append("scenario=").append(it).append(' ') }
             append("enabled=").append(engine.enabled.sorted())
             append(" activeRules=").append(active.size).append('/').append(engine.allRules.size)
             if (engine.variableOverrides.isNotEmpty()) append(" vars=").append(engine.variableOverrides)
@@ -112,13 +125,22 @@ object MockRules {
         val errors = engine.load(files)
         errors.forEach { (path, error) -> Log.w(TAG, "Couldn't read $path: $error") }
 
+        // scenarios.json at the root: bundled, or pushed (which wins).
+        val pushedScenarios = context.getExternalFilesDir(null)?.let { File(File(it, ROOT), SCENARIOS) }?.takeIf { it.isFile }
+        val scenariosJson = pushedScenarios?.let { runCatching { it.readText() }.getOrNull() }
+            ?: runCatching { assets.open("$ROOT/$SCENARIOS").bufferedReader().use { it.readText() } }.getOrNull()
+        engine.scenarios = scenariosJson?.let { json ->
+            runCatching { MockRulesFormat.parseScenarios(json) }.onFailure { Log.w(TAG, "Couldn't read $SCENARIOS: ${it.message}") }.getOrNull()
+        }.orEmpty()
+
         // Saved state from earlier test steps.
         val p = prefs(context)
         engine.enabled = p.getStringSet(KEY_ENABLED, emptySet()).orEmpty().toSet()
         engine.variableOverrides = p.getStringSet(KEY_VARS, emptySet()).orEmpty()
             .filter { '=' in it }.associate { it.substringBefore('=') to it.substringAfter('=') }
         engine.alwaysCallServer = p.getBoolean(KEY_CALL_SERVER, false)
-        Log.i(TAG, "Loaded ${engine.allRules.size} rule(s) from ${files.size} file(s). ${summary()}")
+        engine.activeScenario = p.getString(KEY_SCENARIO, null)
+        Log.i(TAG, "Loaded ${engine.allRules.size} rule(s) from ${files.size} file(s) and ${engine.scenarios.size} scenario(s). ${summary()}")
     }
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

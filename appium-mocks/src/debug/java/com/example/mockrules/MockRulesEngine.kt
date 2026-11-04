@@ -31,6 +31,12 @@ class MockRulesEngine {
 
     @Volatile var alwaysCallServer: Boolean = false
 
+    /** Scenarios from scenarios.json, by name. */
+    @Volatile var scenarios: Map<String, MockScenario> = emptyMap()
+
+    /** The scenario a test last applied, for the summary. */
+    @Volatile var activeScenario: String? = null
+
     /** Runs once, on the first request (off the main thread), to load files and saved state. */
     @Volatile var loader: (() -> Unit)? = null
     private val loadLock = Any()

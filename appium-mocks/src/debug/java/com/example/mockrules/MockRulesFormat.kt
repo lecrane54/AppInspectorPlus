@@ -54,7 +54,22 @@ data class MockRule(
 
 class MockRulesFile(val rules: List<MockRule>, val variables: Map<String, String>)
 
+/** A named set of rules (selectors) and variable values from `network-inspector-rules/scenarios.json`. */
+class MockScenario(val name: String, val enable: List<String>, val variables: Map<String, String>)
+
 object MockRulesFormat {
+    /** Parses scenarios.json. Throws org.json.JSONException on bad JSON. */
+    fun parseScenarios(json: String): Map<String, MockScenario> {
+        val out = linkedMapOf<String, MockScenario>()
+        JSONObject(json).optJSONArray("scenarios")?.objects()?.forEach { s ->
+            val name = s.optString("name").takeIf { it.isNotBlank() } ?: return@forEach
+            val enable = s.optJSONArray("enable")?.let { a -> (0 until a.length()).map { a.optString(it) }.filter { it.isNotBlank() } }.orEmpty()
+            val vars = s.optJSONObject("variables")?.let { o -> o.keys().asSequence().associateWith { o.optString(it) } }.orEmpty()
+            out[name] = MockScenario(name, enable, vars)
+        }
+        return out
+    }
+
     /** Parses one file. [relPath] is `team/file.json`. Throws org.json.JSONException on bad JSON. */
     fun parse(relPath: String, json: String): MockRulesFile {
         val team = relPath.substringBefore('/')

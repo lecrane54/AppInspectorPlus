@@ -72,35 +72,7 @@ class CreateRuleFromEndpointAction : DumbAwareAction() {
             turnOn = settings.turnOnNewRules,
         )
         if (!dialog.showAndGet()) return
-
-        var rule = dialog.rule()
-        val target = dialog.target()
-        if (target != null) {
-            // Going into a team file: offer to turn emails and tokens into local variables first.
-            val replacements = SensitiveCheck.review(project, service, mapOf(rule.name.orEmpty() to rule)) ?: return
-            rule = SensitiveData.replace(rule, replacements)
-            service.addLocalValues(replacements.entries.associate { (literal, name) -> name to literal })
-        }
-        if (target == null) {
-            service.addLocalRule(rule, dialog.turnOn())
-            return
-        }
-        if (service.fileHasRule(target, rule.name.orEmpty())) {
-            val answer = Messages.showYesNoDialog(
-                project,
-                "$target already has a rule named \"${rule.name}\". Replace it?",
-                "Replace Rule?",
-                "Replace",
-                "Cancel",
-                Messages.getWarningIcon(),
-            )
-            if (answer != Messages.YES) return
-        }
-        try {
-            service.addRuleToFile(target, rule, dialog.turnOn())
-        } catch (ex: IllegalStateException) {
-            Messages.showErrorDialog(project, ex.message, "Can't Save Rule")
-        }
+        saveNewRule(project, service, dialog)
     }
 
     private class EndpointRead(val endpoint: RetrofitEndpoint, val body: String)
@@ -114,7 +86,40 @@ class CreateRuleFromEndpointAction : DumbAwareAction() {
     }
 }
 
-private class CreateRuleDialog(
+/**
+ * Saves the rule from a [CreateRuleDialog]: to the developer's Rules tab only, or to a team file after
+ * offering to turn emails and tokens into local variables.
+ */
+internal fun saveNewRule(project: Project, service: SharedRulesService, dialog: CreateRuleDialog) {
+    var rule = dialog.rule()
+    val target = dialog.target()
+    if (target == null) {
+        service.addLocalRule(rule, dialog.turnOn())
+        return
+    }
+    val replacements = SensitiveCheck.review(project, service, mapOf(rule.name.orEmpty() to rule)) ?: return
+    rule = SensitiveData.replace(rule, replacements)
+    service.addLocalValues(replacements.entries.associate { (literal, name) -> name to literal })
+    if (service.fileHasRule(target, rule.name.orEmpty())) {
+        val answer = Messages.showYesNoDialog(
+            project,
+            "$target already has a rule named \"${rule.name}\". Replace it?",
+            "Replace Rule?",
+            "Replace",
+            "Cancel",
+            Messages.getWarningIcon(),
+        )
+        if (answer != Messages.YES) return
+    }
+    try {
+        service.addRuleToFile(target, rule, dialog.turnOn())
+    } catch (ex: IllegalStateException) {
+        Messages.showErrorDialog(project, ex.message, "Can't Save Rule")
+    }
+}
+
+/** The rule editor used by "Create Network Rule from Endpoint" and "Create Network Rule from Response". */
+internal class CreateRuleDialog(
     private val project: Project,
     name: String,
     method: String,
@@ -123,6 +128,10 @@ private class CreateRuleDialog(
     private val hostSet: Boolean,
     service: SharedRulesService,
     turnOn: Boolean,
+    dialogTitle: String = "Create Network Rule from Endpoint",
+    statusCode: String = "200",
+    private val pathComment: String = "<code>*</code> matches anything. The leading <code>*</code> covers the service's base path in every environment.",
+    private val bodyComment: String = "Replaces the real response body. Built from the method's return type; edit as needed. Empty keeps the server's body.",
 ) : DialogWrapper(project) {
     private val nameField = JBTextField(name)
     private val methodCombo = ComboBox(EndpointLogic.STUDIO_METHODS.toTypedArray()).apply { selectedItem = method }
@@ -131,7 +140,7 @@ private class CreateRuleDialog(
     private val portField = JBTextField(criteria.port, 6)
     private val pathField = JBTextField(criteria.path)
     private val queryField = JBTextField(criteria.query)
-    private val statusField = JBTextField("200", 6)
+    private val statusField = JBTextField(statusCode, 6)
     private val bodyArea = JBTextArea(body, 14, 60).apply {
         font = JBUI.Fonts.create(java.awt.Font.MONOSPACED, font.size)
     }
@@ -139,7 +148,7 @@ private class CreateRuleDialog(
     private val turnOnBox = JBCheckBox("Turn the rule on now", turnOn)
 
     init {
-        title = "Create Network Rule from Endpoint"
+        title = dialogTitle
         setOKButtonText("Create")
         init()
     }
@@ -166,14 +175,14 @@ private class CreateRuleDialog(
         }
         row("Path:") {
             cell(pathField).align(AlignX.FILL)
-                .comment("<code>*</code> matches anything. The leading <code>*</code> covers the service's base path in every environment.")
+                .comment(pathComment)
         }
         row("Query:") { cell(queryField).align(AlignX.FILL).comment("Empty matches any query.") }
         row("Status code:") { cell(statusField).comment("Empty keeps the server's status code.") }
         row("Response body:") {}
         row {
             cell(JBScrollPane(bodyArea)).align(Align.FILL)
-                .comment("Replaces the real response body. Built from the method's return type; edit as needed. Empty keeps the server's body.")
+                .comment(bodyComment)
         }.resizableRow()
         row("Team:") {
             cell(picker.teamCombo)

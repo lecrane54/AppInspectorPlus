@@ -16,7 +16,8 @@ package io.github.networkrules
 object VariableLogic {
     val VALID_NAME = Regex("^[A-Za-z0-9_]+$")
 
-    enum class Scope { SHARED, LOCAL, MISSING }
+    /** SCENARIO: set only by the scenario that's on (in scenarios.json), not in any team file. */
+    enum class Scope { SHARED, LOCAL, MISSING, SCENARIO }
 
     data class Row(
         val name: String,
@@ -33,9 +34,11 @@ object VariableLogic {
         val description: String? = null,
         /** team/file.json paths that declare it as local (no value). */
         val declaredIn: List<String> = emptyList(),
+        /** The value the scenario that's on sets, if any. */
+        val scenarioValue: String? = null,
     ) {
-        /** The value rules are sent to the device with. */
-        val effective: String? get() = yourValue ?: sharedValue
+        /** The value rules are sent to the device with: yours, else the scenario's, else the shared one. */
+        val effective: String? get() = yourValue ?: scenarioValue ?: sharedValue
     }
 
     class SharedDefinition(val value: String, val files: List<String>, val description: String? = null)
@@ -86,16 +89,19 @@ object VariableLogic {
         studio: Map<String, String>,
         used: Map<String, Int>,
         declared: Map<String, Declaration> = emptyMap(),
+        scenario: Map<String, String> = emptyMap(),
     ): List<Row> {
-        val names = (shared.keys + declared.keys + local.keys + studio.keys + used.keys).toSortedSet(String.CASE_INSENSITIVE_ORDER)
+        val names = (shared.keys + declared.keys + local.keys + studio.keys + used.keys + scenario.keys).toSortedSet(String.CASE_INSENSITIVE_ORDER)
         return names.map { name ->
             val def = shared[name]
             val decl = declared[name]
             val count = used[name] ?: 0
             val declaredIn = decl?.files.orEmpty()
+            val sv = scenario[name]
             when {
-                def != null -> Row(name, Scope.SHARED, def.value, def.files, local[name]?.takeIf { it.isNotEmpty() }, count, def.description ?: decl?.description, declaredIn)
-                name in local -> Row(name, Scope.LOCAL, null, emptyList(), local.getValue(name), count, decl?.description, declaredIn)
+                def != null -> Row(name, Scope.SHARED, def.value, def.files, local[name]?.takeIf { it.isNotEmpty() }, count, def.description ?: decl?.description, declaredIn, sv)
+                name in local -> Row(name, Scope.LOCAL, null, emptyList(), local.getValue(name), count, decl?.description, declaredIn, sv)
+                sv != null -> Row(name, Scope.SCENARIO, null, emptyList(), null, count, decl?.description, declaredIn, sv)
                 name in studio -> Row(name, Scope.LOCAL, null, emptyList(), studio.getValue(name), count, decl?.description, declaredIn)
                 else -> Row(name, Scope.MISSING, null, emptyList(), null, count, decl?.description, declaredIn)
             }
@@ -119,11 +125,16 @@ object VariableLogic {
 
     /**
      * The variables Studio should hold: every shared variable (with this developer's value when
-     * set) and every local one. Variables made in Studio's own dialog aren't listed, so they're left alone.
+     * set, else the active scenario's), the scenario's own variables, and every local one. Variables made in Studio's own dialog aren't listed, so they're left alone.
      */
-    fun studioValues(shared: Map<String, SharedDefinition>, local: Map<String, String>): LinkedHashMap<String, String> {
+    fun studioValues(
+        shared: Map<String, SharedDefinition>,
+        local: Map<String, String>,
+        scenario: Map<String, String> = emptyMap(),
+    ): LinkedHashMap<String, String> {
         val out = linkedMapOf<String, String>()
-        for ((name, def) in shared) out[name] = local[name]?.takeIf { it.isNotEmpty() } ?: def.value
+        for ((name, def) in shared) out[name] = local[name]?.takeIf { it.isNotEmpty() } ?: scenario[name] ?: def.value
+        for ((name, value) in scenario) if (name !in shared && name !in local) out[name] = value
         for ((name, value) in local) if (name !in shared) out[name] = value
         return out
     }

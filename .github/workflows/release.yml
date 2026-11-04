@@ -63,6 +63,29 @@ jobs:
             plugin/build/distributions/*.zip
             plugin/build/distributions/SHA256SUMS.txt
 
+      # A custom plugin repository for automatic updates. Teammates add this URL once in
+      # Settings → Plugins → ⚙ → Manage Plugin Repositories, and Studio offers each new release:
+      #   https://github.com/<owner>/<repo>/releases/latest/download/updatePlugins.xml
+      - name: Write updatePlugins.xml
+        if: github.ref_type == 'tag'
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          zip="network-rules-sync-${version}.zip"
+          cat > plugin/build/distributions/updatePlugins.xml <<XML
+          <?xml version="1.0" encoding="UTF-8"?>
+          <plugins>
+            <plugin id="io.github.networkrules" version="${version}"
+                    url="https://github.com/${REPO}/releases/download/${GITHUB_REF_NAME}/${zip}">
+              <name>Network Inspector Shared Rules</name>
+              <idea-version since-build="253"/>
+              <change-notes><![CDATA[See <a href="https://github.com/${REPO}/releases/tag/${GITHUB_REF_NAME}">the release notes</a>.]]></change-notes>
+            </plugin>
+          </plugins>
+          XML
+          cat plugin/build/distributions/updatePlugins.xml
+
       - name: Publish GitHub Release
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
@@ -70,4 +93,5 @@ jobs:
           files: |
             plugin/build/distributions/*.zip
             plugin/build/distributions/SHA256SUMS.txt
+            plugin/build/distributions/updatePlugins.xml
           generate_release_notes: true

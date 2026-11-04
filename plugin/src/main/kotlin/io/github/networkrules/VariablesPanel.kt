@@ -61,7 +61,11 @@ class VariablesPanel(private val project: Project) : JPanel(BorderLayout()) {
             return when (column) {
                 0 -> r.name
                 1 -> where(r)
-                2 -> r.sharedValue.orEmpty()
+                2 -> when {
+                    r.scenarioValue != null && r.sharedValue != null -> "${r.scenarioValue} (scenario; shared: ${r.sharedValue})"
+                    r.scenarioValue != null -> "${r.scenarioValue} (scenario)"
+                    else -> r.sharedValue.orEmpty()
+                }
                 YOUR_VALUE -> r.yourValue.orEmpty()
                 DESCRIPTION -> r.description.orEmpty()
                 else -> if (r.usedBy == 1) "1 rule" else "${r.usedBy} rules"
@@ -127,6 +131,7 @@ class VariablesPanel(private val project: Project) : JPanel(BorderLayout()) {
         VariableLogic.Scope.SHARED -> "Shared · " + r.files.first() + if (r.files.size > 1) " (+${r.files.size - 1})" else ""
         VariableLogic.Scope.LOCAL -> if (r.declaredIn.isEmpty()) "Local" else "Local · declared in ${r.declaredIn.first()}"
         VariableLogic.Scope.MISSING -> "Missing: set your value"
+        VariableLogic.Scope.SCENARIO -> "Scenario · ${service.activeScenario.orEmpty()}"
     }
 
     private fun add() {
