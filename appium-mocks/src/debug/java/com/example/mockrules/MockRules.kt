@@ -23,7 +23,11 @@ object MockRules {
     private const val KEY_VARS = "vars"
     private const val KEY_CALL_SERVER = "always_call_server"
     private const val KEY_SCENARIO = "scenario"
+    private const val KEY_RECORD = "record"
     private const val SCENARIOS = "scenarios.json"
+
+    /** Under the app's external files dir: `<team>/<file>.json` recorded by record mode, to pull with adb. */
+    const val RECORDINGS = "network-inspector-recordings"
 
     val engine = MockRulesEngine()
 
@@ -49,10 +53,23 @@ object MockRules {
         alwaysCallServer: Boolean? = null,
         reload: Boolean = false,
         scenario: String? = null,
+        /** Start record mode into this `team/file.json` (see [MockRulesRecorder]); null leaves it as it is. */
+        record: String? = null,
+        stopRecording: Boolean = false,
     ): String {
         init(context)
         // Load files and saved state first, so this change applies on top of earlier test steps.
         engine.ensureLoaded()
+
+        var badRecordTarget: String? = null
+        if (stopRecording && engine.recorder != null) {
+            Log.i(TAG, "Recording stopped: ${engine.recorder?.target} (${engine.recorder?.count} rules)")
+            engine.recorder = null
+        }
+        record?.let { raw ->
+            val target = MockRulesRecorder.normalizeTarget(raw)
+            if (target == null) badRecordTarget = raw else if (engine.recorder?.target != target) startRecording(context, target)
+        }
 
         // A scenario works like `only` with its rules, plus its variable values; explicit extras in the
         // same broadcast still apply on top (so --es var can supply a value the scenario leaves out).
@@ -79,6 +96,7 @@ object MockRules {
             .putStringSet(KEY_VARS, vars.map { (k, v) -> "$k=$v" }.toSet())
             .putBoolean(KEY_CALL_SERVER, engine.alwaysCallServer)
             .putString(KEY_SCENARIO, engine.activeScenario)
+            .putString(KEY_RECORD, engine.recorder?.target)
             .apply()
 
         if (reload) {
@@ -86,7 +104,35 @@ object MockRules {
             engine.loader = { loadAll() }
             engine.ensureLoaded()
         }
-        return summary().also { Log.i(TAG, it) }
+        val summary = summary() + (badRecordTarget?.let { " recording=INVALID TARGET \"$it\" (use team/file.json)" } ?: "")
+        return summary.also { Log.i(TAG, it) }
+    }
+
+    /** `recorded/<date-time>.json`, for `--ez record true`. */
+    fun defaultRecordingTarget(): String =
+        "recorded/" + java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(java.util.Date()) + ".json"
+
+    /** The file a recording goes to, under the app's external files dir (pull it with adb). */
+    fun recordingFile(context: Context, target: String): File? =
+        context.getExternalFilesDir(null)?.let { File(File(it, RECORDINGS), target) }
+
+    private fun startRecording(context: Context, target: String) {
+        val file = recordingFile(context, target)
+        if (file == null) {
+            Log.w(TAG, "Can't record: no external files dir")
+            return
+        }
+        val existing = file.takeIf { it.isFile }?.let { f -> runCatching { f.readText() }.getOrNull() }
+        engine.recorder = MockRulesRecorder(
+            target,
+            variables = { engine.variables() },
+            sink = { text ->
+                file.parentFile?.mkdirs()
+                file.writeText(text)
+            },
+            existingJson = existing,
+        )
+        Log.i(TAG, "Recording server responses to $file")
     }
 
     fun summary(): String {
@@ -100,6 +146,7 @@ object MockRules {
             append(" activeRules=").append(active.size).append('/').append(engine.allRules.size)
             if (engine.variableOverrides.isNotEmpty()) append(" vars=").append(engine.variableOverrides)
             if (engine.alwaysCallServer) append(" alwaysCallServer=true")
+            engine.recorder?.let { append(" recording=").append(it.target).append(" (").append(it.count).append(" rules)") }
             if (unknown.isNotEmpty()) append(" NOT FOUND=").append(unknown)
         }
     }
@@ -140,6 +187,8 @@ object MockRules {
             .filter { '=' in it }.associate { it.substringBefore('=') to it.substringAfter('=') }
         engine.alwaysCallServer = p.getBoolean(KEY_CALL_SERVER, false)
         engine.activeScenario = p.getString(KEY_SCENARIO, null)
+        // A recording in progress continues after the app restarts, adding to the same file.
+        p.getString(KEY_RECORD, null)?.let { target -> if (engine.recorder?.target != target) startRecording(context, target) }
         Log.i(TAG, "Loaded ${engine.allRules.size} rule(s) from ${files.size} file(s) and ${engine.scenarios.size} scenario(s). ${summary()}")
     }
 

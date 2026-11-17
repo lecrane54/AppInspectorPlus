@@ -88,6 +88,6 @@ object ScenarioLogic {
         ScenariosFile(1, file?.scenarios.orEmpty().filter { it.name != name }.toMutableList())
 
     /** A command a test (or a person) can run to apply [name] in the Appium mocks. */
-    fun adbCommand(name: String): String =
-        "adb shell am broadcast -a com.example.mockrules.CONTROL -p <your.package> -f 0x20 --es scenario \"$name\""
+    fun adbCommand(name: String, appPackage: String = "", action: String = DevicePushLogic.DEFAULT_ACTION): String =
+        "adb shell " + DevicePushLogic.broadcast(action, appPackage.ifBlank { "<your.package>" }, listOf("--es scenario \"$name\""))
 }

@@ -46,6 +46,7 @@ under **Tools → Network Inspector Shared Rules**.
 | ⧩ **Choose Teams…** | Chooses which team folders *you* load. This choice is local and not committed. |
 | 📂 **Show Shared Rules Folder** | Shows `network-inspector-rules/` in the Project view. |
 | ⋯ **Create Network Rule from Selected Request…** | Same as right-clicking a request in the Connection View (see [Create a rule from captured traffic](#create-a-rule-from-captured-traffic)). |
+| ⋯ **Push Rules to Device…** | Copies `network-inspector-rules/` to a connected device with adb and tells the Appium mocks to reload, optionally applying the current scenario and passing your variable values (see [Push rules to a device](#push-rules-to-a-device)). |
 | ⋯ **Rename Team…** | Renames a team folder. Its rules become `[new name] …` in Studio and keep your on/off choices. |
 | ⋯ **Delete Team…** | Deletes a team folder and its rules, after a confirmation. Git or Local History can undo it until you commit. |
 | ⋯ **Variables…** | Opens the **Variables** tab (see below), or the same table in a dialog when no app is connected. |
@@ -225,7 +226,31 @@ plugin can't see into (custom adapters, polymorphic types) get a best guess for 
 Network Inspector rules only work while Android Studio is attached to the app. For Appium tests
 on real devices, [`appium-mocks/`](appium-mocks) has a debug-only OkHttp interceptor to copy into
 the app. It reads these same files, and a test turns scenarios on with an adb broadcast, e.g.
-`--es only "checkout/payment-declined.json"`. See its README.
+`--es only "checkout/payment-declined.json"`. See its README. Two things only the interceptor does:
+
+* **Dynamic values in bodies.** A mocked body can answer with what the app sent or with a fresh
+  value: `${mock.uuid}`, `${mock.now}`, `${request.path[2]}`, `${request.body.items[0].sku}`,
+  `${request.header.X-Trace-Id}`… so a mocked "create order" returns the ID the app posted. Studio
+  sends these as text (its variable checks ignore them, since the names have a dot).
+* **Record mode.** `--es record "checkout/signup-flow.json"` turns every real server response into a
+  rule in a file on the device, in this same format, to pull into `network-inspector-rules/` and commit.
+
+### Push rules to a device
+
+**⋯ → Push Rules to Device…** (also under Tools) saves a round trip through the terminal when you
+work on the Appium path:
+
+1. Set the debug app's package name once, under **Settings → Tools → Network Inspector Shared
+   Rules → Appium Mocks on the Device** (and the broadcast action, if you renamed it in the app).
+2. Pick the device. The rules folder (every team, hidden ones too, plus `scenarios.json`) replaces
+   `files/network-inspector-rules/` under the app's external storage, where the interceptor reads
+   pushed files before the ones bundled in the APK.
+3. The plugin sends the reload broadcast. If a scenario is on in the Rules tab it can apply it on the
+   device too, and it can pass your local variable values (the same `--es var` as the Variables tab's
+   **Copy adb Arguments for Appium**). The receiver's summary comes back in a notification, so a
+   typo in a scenario shows as `NOT FOUND` right there.
+
+The copied adb commands (**Copy adb Command for Appium**) use the same package name once it's set.
 
 ## How sharing behaves
 

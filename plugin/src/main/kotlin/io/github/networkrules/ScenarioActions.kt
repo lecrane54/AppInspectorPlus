@@ -155,8 +155,10 @@ private class CopyScenarioCommandAction : ScenarioAction("Copy adb Command for A
     }
 
     override fun actionPerformed(e: AnActionEvent) {
-        val name = e.project?.let { SharedRulesService.getInstance(it).activeScenario } ?: return
-        CopyPasteManager.getInstance().setContents(StringSelection(ScenarioLogic.adbCommand(name)))
+        val project = e.project ?: return
+        val name = SharedRulesService.getInstance(project).activeScenario ?: return
+        val settings = EndpointSettings.getInstance(project)
+        CopyPasteManager.getInstance().setContents(StringSelection(ScenarioLogic.adbCommand(name, settings.appPackage, settings.broadcastAction)))
     }
 }
 

@@ -37,6 +37,9 @@ class MockRulesEngine {
     /** The scenario a test last applied, for the summary. */
     @Volatile var activeScenario: String? = null
 
+    /** Record mode: gets every response that came from the server. Null when not recording. */
+    @Volatile var recorder: MockRulesRecorder? = null
+
     /** Runs once, on the first request (off the main thread), to load files and saved state. */
     @Volatile var loader: (() -> Unit)? = null
     private val loadLock = Any()
@@ -91,7 +94,7 @@ class MockRulesEngine {
         ensureLoaded()
         val request = chain.request()
         val matches = matching(request)
-        if (matches.isEmpty()) return chain.proceed(request)
+        if (matches.isEmpty()) return proceed(chain, request)
 
         val vars = variables()
         var response = if (!alwaysCallServer && matches.any { it.replacesBody }) {
@@ -103,10 +106,18 @@ class MockRulesEngine {
                 .body("".toResponseBody(JSON))
                 .build()
         } else {
-            chain.proceed(request)
+            proceed(chain, request)
         }
-        for (rule in matches) response = apply(rule, response, vars)
+        val placeholders = MockPlaceholders(request)
+        for (rule in matches) response = apply(rule, response, vars, placeholders)
         return response.newBuilder().header(HEADER, matches.joinToString(", ") { it.id }).build()
+    }
+
+    /** Calls the server, and hands the real response to the recorder when record mode is on. */
+    private fun proceed(chain: Interceptor.Chain, request: Request): Response {
+        val response = chain.proceed(request)
+        recorder?.let { r -> runCatching { r.record(request, response) } }
+        return response
     }
 
     /** Runs [loader] if it hasn't run yet. Safe to call from any thread. */
@@ -120,11 +131,13 @@ class MockRulesEngine {
         }
     }
 
-    private fun apply(rule: MockRule, response: Response, vars: Map<String, String>): Response {
+    private fun apply(rule: MockRule, response: Response, vars: Map<String, String>, dynamic: MockPlaceholders): Response {
         val b = response.newBuilder()
+        // `${VARIABLES}` first, then `${mock.…}` / `${request.…}` (which Studio leaves as text).
+        fun fill(s: String, json: Boolean = false) = dynamic.resolve(resolve(s, vars), json)
 
         rule.status?.let { s ->
-            val newCode = resolve(s.newCode, vars).toIntOrNull()
+            val newCode = fill(s.newCode).toIntOrNull()
             val find = resolve(s.findCode, vars)
             if (s.active && newCode != null && (find.isEmpty() || find == response.code.toString())) b.code(newCode)
         }
@@ -132,12 +145,12 @@ class MockRulesEngine {
         // Header changes apply in order, each to the result of the one before.
         var headers = response.headers.toList()
         for (h in rule.headers) headers = when (h) {
-            is MockHeaderOp.Add -> headers + (resolve(h.name, vars) to resolve(h.value, vars))
+            is MockHeaderOp.Add -> headers + (fill(h.name) to fill(h.value))
             is MockHeaderOp.Replace -> headers.map { (name, value) ->
                 val nameOk = h.findName.isEmpty() || MockMatching.text(resolve(h.findName, vars), name, h.findNameRegex, ignoreCase = true)
                 val valueOk = h.findValue.isEmpty() || MockMatching.text(resolve(h.findValue, vars), value, h.findValueRegex, ignoreCase = false)
                 if (nameOk && valueOk) {
-                    resolve(h.newName, vars).ifEmpty { name } to resolve(h.newValue, vars).ifEmpty { value }
+                    fill(h.newName).ifEmpty { name } to fill(h.newValue).ifEmpty { value }
                 } else name to value
             }
         }
@@ -150,10 +163,10 @@ class MockRulesEngine {
             val contentType = original?.contentType() ?: JSON
             var text = original?.string().orEmpty()
             for (op in rule.body) text = when (op) {
-                is MockBodyOp.Replace -> resolve(op.body, vars)
+                is MockBodyOp.Replace -> fill(op.body, json = MockPlaceholders.looksLikeJson(op.body))
                 is MockBodyOp.Modify -> {
                     val target = resolve(op.targetText, vars)
-                    val replacement = resolve(op.newText, vars)
+                    val replacement = fill(op.newText, json = MockPlaceholders.looksLikeJson(text))
                     when {
                         target.isEmpty() -> text
                         op.regex -> Regex(target).replace(text, replacement)

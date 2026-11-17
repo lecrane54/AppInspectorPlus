@@ -19,7 +19,7 @@ This folder only builds here to compile and test the code. Nothing in this repo 
 
 ```
 app/src/debug/AndroidManifest.xml                     ← merge into yours if you already have one
-app/src/debug/java/com/example/mockrules/*.kt         ← 5 files
+app/src/debug/java/com/example/mockrules/*.kt         ← 7 files
 app/src/release/java/com/example/mockrules/MockRulesInstaller.kt
 ```
 
@@ -101,6 +101,7 @@ am broadcast -a com.example.mockrules.CONTROL -p <your.package> -f 0x20 <extras>
 | `--es var "API_HOST=api.staging.example.com"` | Sets variables (comma-separated: `"A=1,B=2"`). `--es unvar API_HOST` removes one |
 | `--ez callServer true` | Always calls the server and rewrites its response (Studio's behavior) |
 | `--ez reload true` | Re-reads the rules files, e.g. after pushing new ones |
+| `--es record "checkout/signup-flow.json"` | [Record mode](#record-mode): every server response becomes a rule in that file. `--ez record true` records to `recorded/<date-time>.json`; `--ez record false` stops |
 
 The state is saved in the app's preferences, so it survives the app restarting between steps.
 Reinstalling the app or `clear` resets it. `am broadcast` prints a summary such as
@@ -141,6 +142,68 @@ mockRules(driver, "--ez", "reload", "true");
 ```
 
 A pushed file replaces the bundled file with the same path.
+
+## Dynamic values in responses
+
+A fixture can answer with what the app sent, or with a fresh value per response, so a mocked
+"create order" returns the ID the app posted and a list screen gets a new timestamp each time:
+
+```json
+{ "type": "replace", "body": {
+    "id": "${mock.uuid}",
+    "orderNumber": "ORD-${mock.random:100000-999999}",
+    "createdAt": "${mock.now}",
+    "customerId": "${request.path[2]}",
+    "items": "${request.body.items}",
+    "total": "${request.body.total}",
+    "trace": "${request.header.X-Trace-Id}" } }
+```
+
+| Placeholder | Value |
+|---|---|
+| `${mock.uuid}` | A random UUID |
+| `${mock.now}` | The time, ISO-8601 in UTC (`2026-11-17T14:03:11Z`). `${mock.now.millis}` / `${mock.now.seconds}` since the epoch; `${mock.now:yyyy-MM-dd}` with a `SimpleDateFormat` pattern |
+| `${mock.random}` | A random 6-digit number; `${mock.random:1-6}` within a range (inclusive) |
+| `${request.method}` `${request.url}` `${request.host}` `${request.path}` `${request.query}` | Parts of the request |
+| `${request.path[1]}` | One path segment: for `/users/42`, `[0]` is `users` and `[1]` is `42` |
+| `${request.query.page}` | A query parameter |
+| `${request.header.X-Trace-Id}` | A request header |
+| `${request.body}` | The request body |
+| `${request.body.items[0].sku}` | A value inside a JSON request body (`.name` and `[index]` as deep as needed) |
+
+* **Values keep their type.** In a JSON body, a string that is exactly one placeholder is replaced
+  whole: `"total": "${request.body.total}"` gives `"total": 19.99`, `"items": "${request.body.items}"`
+  echoes the whole array, `"ts": "${mock.now.millis}"` is a number. Inside longer text
+  (`"Order ${request.body.id}"`) everything is inserted as text, with quotes escaped.
+* The names have a dot, so they never clash with `${VARIABLES}`, and Studio's variable checks ignore
+  them. Studio itself sends them as plain text: they're resolved only here.
+* A placeholder that can't be resolved (a missing query parameter, a body that isn't JSON) is left
+  as it is, so it's visible in the response.
+* They work in bodies (replace and modify), added or replaced headers, and the status code.
+
+## Record mode
+
+One run through a flow, by hand or by a test, gives fixtures to review and commit:
+
+```
+am broadcast … --es record "checkout/signup-flow.json"     # start (or continue) recording
+… use the app, or run the test …
+am broadcast … --ez record false                            # stop
+adb pull /sdcard/Android/data/<your.package>/files/network-inspector-recordings/checkout/signup-flow.json \
+         network-inspector-rules/checkout/signup-flow.json
+```
+
+* Every response **from the server** becomes a rule: method, host (as `${API_HOST}` when a variable
+  has that value), path with IDs (numbers, UUIDs, long hex) as `*`, the status code, and the body as
+  real JSON when it is JSON. Responses the mocks answered themselves aren't recorded.
+* A second response for the same method and path is named `GET /v1/jobs/* (2)`, `(3)`…, so a polling
+  flow keeps every state. Delete the ones you don't want.
+* **Headers aren't recorded** (that's where tokens live). Review the bodies before committing: the
+  plugin's email/token check runs on Export, not on a file you pull by hand. Importing the file with
+  **Import Rules from File…** in Studio also works.
+* Binary and very large bodies (over 1 MB) are skipped. Recording survives the app restarting, and
+  keeps adding to the same file until stopped. Reinstalling the app removes the recordings.
+* The broadcast summary shows `recording=checkout/signup-flow.json (3 rules)` while it's on.
 
 ## Debugging
 

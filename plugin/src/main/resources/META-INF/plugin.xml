@@ -19,6 +19,8 @@
           <li><b>Create Network Rule from Endpoint…</b>: right-click a Retrofit method to make a rule for it, with a sample response built from its return type. Set your base URL under <i>Settings → Tools → Network Inspector Shared Rules</i>.</li>
           <li>Rules files get completion and error highlighting in the editor.</li>
           <li><b>Format JSON</b> (or the Reformat Code shortcut) pretty-prints the response body in Studio's Body Rule dialog when <i>Replace entire body</i> is checked, and in the Create Rule dialogs.</li>
+          <li><b>Push Rules to Device…</b> copies the rules folder to a connected device with adb and tells the Appium mocks to reload, optionally applying the current scenario and your variable values. Set the app package under <i>Settings → Tools → Network Inspector Shared Rules</i>.</li>
+          <li>In the Appium mocks, response bodies can use <code>${mock.uuid}</code>, <code>${mock.now}</code> and <code>${request.body.items[0].sku}</code>-style placeholders, and <b>record mode</b> turns real server responses into rules files to pull and commit.</li>
           <li><b>Teams…</b> lets each developer hide teams they don't need.</li>
           <li>The Rules tab groups rules by team, and each team can be collapsed or expanded by clicking its header.</li>
           <li>A <b>Team</b> dropdown above the rule details saves the selected rule to a team file as <code>[team] name</code>.</li>
@@ -85,9 +87,14 @@
                 text="Create Network Rule from Selected Request…"
                 description="Create a rule from the request selected in Network Inspector's Connection View, with its real response"
                 icon="AllIcons.Nodes.Plugin"/>
+        <action id="NetworkRulesSync.PushToDevice" class="io.github.networkrules.PushRulesToDeviceAction"
+                text="Push Rules to Device…"
+                description="Copy the shared rules folder to a connected device and tell the Appium mocks to reload"
+                icon="AllIcons.Actions.Upload"/>
 
         <group id="NetworkRulesSync.More" text="More Shared Rules Actions" popup="true" icon="AllIcons.Actions.More">
             <reference ref="NetworkRulesSync.CreateFromRequest"/>
+            <reference ref="NetworkRulesSync.PushToDevice"/>
             <separator/>
             <reference ref="NetworkRulesSync.RenameTeam"/>
             <reference ref="NetworkRulesSync.DeleteTeam"/>
@@ -116,6 +123,7 @@
             <reference ref="NetworkRulesSync.Import"/>
             <reference ref="NetworkRulesSync.ToggleByFile"/>
             <reference ref="NetworkRulesSync.CreateFromRequest"/>
+            <reference ref="NetworkRulesSync.PushToDevice"/>
             <separator/>
             <reference ref="NetworkRulesSync.CreateTeam"/>
             <reference ref="NetworkRulesSync.RenameTeam"/>

@@ -1037,7 +1037,7 @@ class SharedRulesService(private val project: Project) :
         SwingUtilities.invokeLater { decorator.revalidate(); decorator.repaint() }
     }
 
-    private fun notification(title: String, content: String, type: NotificationType) =
+    internal fun notification(title: String, content: String, type: NotificationType) =
         NotificationGroupManager.getInstance().getNotificationGroup("Network Rules Sync").createNotification(title, content, type)
 
     private fun esc(s: String) = StringUtil.escapeXmlEntities(s)

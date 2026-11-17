@@ -25,7 +25,23 @@ class EndpointSettings : SimplePersistentStateComponent<EndpointSettings.Data>(D
     class Data : BaseState() {
         var baseUrl by string("")
         var turnOnNewRules by property(true)
+        var appPackage by string("")
+        var broadcastAction by string(DevicePushLogic.DEFAULT_ACTION)
     }
+
+    /** The debug app that has the Appium mocks, for **Push Rules to Device…** and the copied adb commands. */
+    var appPackage: String
+        get() = state.appPackage.orEmpty()
+        set(value) {
+            state.appPackage = value.trim()
+        }
+
+    /** The broadcast action the app's mocks receiver listens for (`MockRulesReceiver.ACTION`). */
+    var broadcastAction: String
+        get() = state.broadcastAction?.takeIf { it.isNotBlank() } ?: DevicePushLogic.DEFAULT_ACTION
+        set(value) {
+            state.broadcastAction = value.trim().ifEmpty { DevicePushLogic.DEFAULT_ACTION }
+        }
 
     var baseUrl: String
         get() = state.baseUrl.orEmpty()
@@ -69,6 +85,29 @@ class SharedRulesConfigurable(private val project: Project) : BoundConfigurable(
                 }
                 row {
                     checkBox("Turn new rules on right away").bindSelected(settings::turnOnNewRules)
+                }
+            }
+            group("Appium Mocks on the Device") {
+                row("App package:") {
+                    textField()
+                        .bindText(settings::appPackage)
+                        .columns(COLUMNS_LARGE)
+                        .comment(
+                            "The debug app that has the Appium mocks interceptor (see <code>appium-mocks/</code>), e.g. <code>com.example.app.debug</code>. " +
+                                "Used by <b>Push Rules to Device…</b> and in the copied adb commands.",
+                        )
+                        .validationOnInput {
+                            if (it.text.isNotBlank() && !DevicePushLogic.VALID_PACKAGE.matches(it.text.trim())) error("Use a package name like com.example.app") else null
+                        }
+                }
+                row("Broadcast action:") {
+                    textField()
+                        .bindText(settings::broadcastAction)
+                        .columns(COLUMNS_LARGE)
+                        .comment("The action the app's <code>MockRulesReceiver</code> listens for. Change it only if you renamed it in the app.")
+                        .validationOnInput {
+                            if (it.text.isNotBlank() && !DevicePushLogic.VALID_ACTION.matches(it.text.trim())) error("Use an action name like com.example.mockrules.CONTROL") else null
+                        }
                 }
             }
         }

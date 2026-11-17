@@ -23,6 +23,10 @@ import android.content.Intent
  *  - `var` (`--es var "API_HOST=10.0.0.5"`): set a variable; `unvar`: remove one
  *  - `callServer` (`--ez callServer true`): rewrite the real response instead of answering locally
  *  - `reload` (`--ez reload true`): re-read the rules files, e.g. after pushing new ones
+ *  - `record` (`--es record "checkout/signup-flow.json"`): record mode: every server response becomes
+ *    a rule in that file under the app's `files/network-inspector-recordings/`, to pull and commit.
+ *    `--ez record true` records to `recorded/<date-time>.json`; `--ez record false` (or
+ *    `--es record off`) stops
  *
  * The broadcast's result data is a summary, printed by `am broadcast`, so a test log shows what's on.
  */
@@ -32,6 +36,15 @@ class MockRulesReceiver : BroadcastReceiver() {
             intent.getStringExtra(key)?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }
 
         val vars = list("var").orEmpty().filter { '=' in it }.associate { it.substringBefore('=') to it.substringAfter('=') }
+        // `record` is a target (--es) or a switch (--ez). A string extra reads back null as a boolean.
+        val recordText = intent.getStringExtra("record")?.trim()
+        val recordFlag = if (intent.hasExtra("record") && recordText == null) intent.getBooleanExtra("record", false) else null
+        val stopRecording = recordFlag == false || recordText == "" || recordText.equals("off", ignoreCase = true)
+        val record = when {
+            stopRecording -> null
+            recordFlag == true -> MockRules.defaultRecordingTarget()
+            else -> recordText
+        }
         val summary = MockRules.update(
             context,
             enable = list("enable").orEmpty(),
@@ -43,6 +56,8 @@ class MockRulesReceiver : BroadcastReceiver() {
             alwaysCallServer = if (intent.hasExtra("callServer")) intent.getBooleanExtra("callServer", false) else null,
             reload = intent.getBooleanExtra("reload", false),
             scenario = intent.getStringExtra("scenario")?.trim()?.takeIf { it.isNotEmpty() },
+            record = record,
+            stopRecording = stopRecording,
         )
         if (isOrderedBroadcast) resultData = summary
     }
