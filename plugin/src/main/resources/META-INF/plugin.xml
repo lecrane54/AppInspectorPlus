@@ -18,6 +18,7 @@
           <li>Emails and tokens typed into rules are caught before they're written to a team file, with an offer to replace them by local variables.</li>
           <li><b>Create Network Rule from Endpoint…</b>: right-click a Retrofit method to make a rule for it, with a sample response built from its return type. Set your base URL under <i>Settings → Tools → Network Inspector Shared Rules</i>.</li>
           <li>Rules files get completion and error highlighting in the editor.</li>
+          <li><b>Format JSON</b> (or the Reformat Code shortcut) pretty-prints the response body in Studio's Body Rule dialog when <i>Replace entire body</i> is checked, and in the Create Rule dialogs.</li>
           <li><b>Teams…</b> lets each developer hide teams they don't need.</li>
           <li>The Rules tab groups rules by team, and each team can be collapsed or expanded by clicking its header.</li>
           <li>A <b>Team</b> dropdown above the rule details saves the selected rule to a team file as <code>[team] name</code>.</li>

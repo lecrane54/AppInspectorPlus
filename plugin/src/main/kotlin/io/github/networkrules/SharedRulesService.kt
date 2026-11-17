@@ -169,6 +169,7 @@ class SharedRulesService(private val project: Project) :
         if (rootDir() != null) refresh(notifyResult = false)
         watchFolder()
         startToolbarInjection()
+        JsonBodyFormatter.install(this)
     }
 
     private fun watchFolder() {

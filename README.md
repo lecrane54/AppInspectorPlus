@@ -56,6 +56,11 @@ It also refreshes on its own:
 * **When a file changes** (`git pull`, a hand edit) and no inspector session is running, it
   updates silently. During a live session you get a notification with a **Refresh now** link.
 
+**Format JSON.** Response-body text areas get a **Format JSON** link, and the Reformat Code shortcut
+(⌥⌘L / Ctrl+Alt+L) pretty-prints the body: in Studio's own Body Rule dialog when **Replace entire
+body** is checked, and in the plugin's Create Rule dialogs. Only valid JSON is rewritten; unquoted
+keys, single quotes or a bare `${VAR}` are reported instead of silently "fixed".
+
 ## Variables: shared and local
 
 Rules can use variables as `${NAME}` (in the host, path, headers or body). A **Variables** tab next to

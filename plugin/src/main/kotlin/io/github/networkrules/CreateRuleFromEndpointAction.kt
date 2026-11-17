@@ -151,6 +151,7 @@ internal class CreateRuleDialog(
         title = dialogTitle
         setOKButtonText("Create")
         init()
+        JsonBodyFormatter.attach(bodyArea, formatNow = false)
     }
 
     override fun createCenterPanel(): JComponent = panel {
