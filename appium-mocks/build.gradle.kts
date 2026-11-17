@@ -21,7 +21,7 @@ sourceSets {
     create("release") { kotlin.srcDir("src/release/java") }
 }
 
-val okhttp = "com.squareup.okhttp3:okhttp:4.12.0"
+val okhttp = "com.squareup.okhttp3:okhttp:5.5.1"
 dependencies {
     implementation(kotlin("stdlib"))
     implementation(okhttp)
@@ -32,8 +32,8 @@ dependencies {
     "releaseImplementation"(kotlin("stdlib"))
     "releaseImplementation"(okhttp)
     testImplementation("junit:junit:4.13.2")
-    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
-    testImplementation("org.json:json:20240303") // android.jar's org.json is stubs only
+    testImplementation("com.squareup.okhttp3:mockwebserver:5.5.1")
+    testImplementation("org.json:json:20260814") // android.jar's org.json is stubs only
 }
 
 tasks.named("compileKotlin") {
